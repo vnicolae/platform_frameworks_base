@@ -1646,6 +1646,16 @@ public final class Settings {
         public static final String NOTIFICATION_LIGHT_PULSE = "notification_light_pulse";
 
         /**
+         * @hide
+         */
+        public static final String NOTIFICATION_LIGHT_ALWAYS_ON = "notification_light_always_on";
+
+        /**
+         * @hide
+         */
+        public static final String NOTIFICATION_LIGHT_CHARGING = "notification_light_charging";
+
+        /**
          * Show pointer location on screen?
          * 0 = no
          * 1 = yes
@@ -1683,7 +1693,7 @@ public final class Settings {
          */
         public static final String DESK_DOCK_SOUND = "desk_dock_sound";
 
-        /**
+        /**schedtool -B -n 1 -e ionice -n 1 make -j `cat /proc/cpuinfo | grep "^processor" | wc -l` "$@"
          * URI for the desk dock "out" event sound.
          * @hide
          */
@@ -1747,6 +1757,36 @@ public final class Settings {
          * @hide
          */
         public static final String SIP_ASK_ME_EACH_TIME = "SIP_ASK_ME_EACH_TIME";
+
+        /** @hide */
+        public static final String LOCKSCREEN_MUSIC_CONTROLS = "lockscreen_music_controls";
+
+        /** @hide */
+        public static final String LOCKSCREEN_ALWAYS_MUSIC_CONTROLS = "lockscreen_always_music_controls";
+
+        /**
+         * Whether to show or not the edge glow when overscrolling
+         * @hide
+         */
+        public static final String OVERSCROLL_GLOW = "overscroll_glow";
+
+        /**
+         * Controls displaying battery percentage in the statusbar icon
+         * @hide
+         */
+        public static final String BATTERY_PERCENTAGE = "battery_percentage";
+
+        /**
+         * Controls displaying of the dropdown multitasking panel
+         * @hide
+         */
+        public static final String MULTITASKING_PANEL = "multitasking_panel";
+
+        /**
+         * List of the toggles to be displayed in the multitasking panel
+         * @hide
+         */
+        public static final String MULTITASKING_BUTTONS = "multitasking_buttons";
 
         /**
          * Settings to backup. This is here so that it's in the same place as the settings
@@ -3464,6 +3504,13 @@ public final class Settings {
          */
         public static final String INET_CONDITION_DEBOUNCE_DOWN_DELAY =
                 "inet_condition_debounce_down_delay";
+
+        /**
+         * Whether to allow killing of the foreground process by long-pressing
+         * the device's BACK button.
+         * @hide
+         */
+        public static final String KILL_APP_LONGPRESS_BACK = "kill_app_on_longpress_back";
 
         /**
          * @hide

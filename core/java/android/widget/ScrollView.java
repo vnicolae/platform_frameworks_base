@@ -24,6 +24,7 @@ import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.provider.Settings;
 import android.util.AttributeSet;
 import android.view.FocusFinder;
 import android.view.KeyEvent;
@@ -120,6 +121,7 @@ public class ScrollView extends FrameLayout {
     
     private int mOverscrollDistance;
     private int mOverflingDistance;
+    private boolean mOverscrollGlow;
 
     /**
      * ID of the active pointer. This is used to retain consistency during
@@ -537,18 +539,20 @@ public class ScrollView extends FrameLayout {
                     if (overscrollMode == OVER_SCROLL_ALWAYS ||
                             (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && range > 0)) {
                         final int pulledToY = oldY + deltaY;
-                        if (pulledToY < 0) {
-                            mEdgeGlowTop.onPull((float) deltaY / getHeight());
-                            if (!mEdgeGlowBottom.isFinished()) {
-                                mEdgeGlowBottom.onRelease();
-                            }
-                        } else if (pulledToY > range) {
-                            mEdgeGlowBottom.onPull((float) deltaY / getHeight());
-                            if (!mEdgeGlowTop.isFinished()) {
-                                mEdgeGlowTop.onRelease();
+                        if (mEdgeGlowTop != null && mOverscrollGlow) {
+                            if (pulledToY < 0) {
+                                mEdgeGlowTop.onPull((float) deltaY / getHeight());
+                                if (!mEdgeGlowBottom.isFinished()) {
+                                    mEdgeGlowBottom.onRelease();
+                                }
+                            } else if (pulledToY > range) {
+                                mEdgeGlowBottom.onPull((float) deltaY / getHeight());
+                                if (!mEdgeGlowTop.isFinished()) {
+                                    mEdgeGlowTop.onRelease();
+                                }
                             }
                         }
-                        if (mEdgeGlowTop != null
+                        if (mEdgeGlowTop != null && mOverscrollGlow
                                 && (!mEdgeGlowTop.isFinished() || !mEdgeGlowBottom.isFinished())) {
                             invalidate();
                         }
@@ -579,7 +583,7 @@ public class ScrollView extends FrameLayout {
                         mVelocityTracker.recycle();
                         mVelocityTracker = null;
                     }
-                    if (mEdgeGlowTop != null) {
+                    if (mEdgeGlowTop != null && mOverscrollGlow) {
                         mEdgeGlowTop.onRelease();
                         mEdgeGlowBottom.onRelease();
                     }
@@ -596,7 +600,7 @@ public class ScrollView extends FrameLayout {
                         mVelocityTracker.recycle();
                         mVelocityTracker = null;
                     }
-                    if (mEdgeGlowTop != null) {
+                    if (mEdgeGlowTop != null && mOverscrollGlow) {
                         mEdgeGlowTop.onRelease();
                         mEdgeGlowBottom.onRelease();
                     }
@@ -1106,7 +1110,7 @@ public class ScrollView extends FrameLayout {
                 final int range = getScrollRange();
                 final int overscrollMode = getOverScrollMode();
                 if (overscrollMode == OVER_SCROLL_ALWAYS ||
-                        (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && range > 0)) {
+                        (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && range > 0) && mEdgeGlowTop != null && mOverscrollGlow) {
                     if (y < 0 && oldY >= 0) {
                         mEdgeGlowTop.onAbsorb((int) mScroller.getCurrVelocity());
                     } else if (y > range && oldY <= range) {
@@ -1303,6 +1307,9 @@ public class ScrollView extends FrameLayout {
 
         // Calling this with the present values causes it to re-clam them
         scrollTo(mScrollX, mScrollY);
+
+        mOverscrollGlow = Settings.System.getInt(mContext.getContentResolver(),
+                      Settings.System.OVERSCROLL_GLOW, 0) == 1;
     }
 
     @Override
@@ -1407,7 +1414,7 @@ public class ScrollView extends FrameLayout {
     @Override
     public void draw(Canvas canvas) {
         super.draw(canvas);
-        if (mEdgeGlowTop != null) {
+        if (mEdgeGlowTop != null && mOverscrollGlow) {
             final int scrollY = mScrollY;
             if (!mEdgeGlowTop.isFinished()) {
                 final int restoreCount = canvas.save();

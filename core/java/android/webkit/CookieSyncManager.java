@@ -169,6 +169,16 @@ public final class CookieSyncManager extends WebSyncManager {
         mDataBase.clearExpiredCookies(now);
     }
 
+    public void clearRamCache(long fromTime) {
+        ArrayList<Cookie> cookieList = CookieManager.getInstance().getUpdatedCookiesSince(fromTime);
+        Iterator<Cookie> it = cookieList.iterator();
+        while (it.hasNext()) {
+            Cookie c = it.next();
+            c.mode = Cookie.MODE_DELETED;
+            CookieManager.getInstance().deleteACookie(c);
+        }
+    }
+
     protected void syncFromRamToFlash() {
         if (DebugFlags.COOKIE_SYNC_MANAGER) {
             Log.v(LOGTAG, "CookieSyncManager::syncFromRamToFlash STARTS");

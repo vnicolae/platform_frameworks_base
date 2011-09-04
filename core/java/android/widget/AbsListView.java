@@ -29,6 +29,7 @@ import android.os.Debug;
 import android.os.Handler;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -524,6 +525,11 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
      * Used for determining when to cancel out of overscroll.
      */
     private int mDirection = 0;
+
+    /**
+     * Whether to show or not the edge glow
+     */
+    private boolean mOverscrollGlow;
 
     /**
      * Interface definition for a callback to be invoked when the list or grid
@@ -1261,6 +1267,9 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         mInLayout = false;
 
         mOverscrollMax = (b - t) / OVERSCROLL_LIMIT_DIVISOR;
+
+        mOverscrollGlow = Settings.System.getInt(mContext.getContentResolver(),
+                      Settings.System.OVERSCROLL_GLOW, 0) == 1;
     }
 
     /**
@@ -2257,15 +2266,17 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                                             !contentFits())) {
                                 mDirection = 0; // Reset when entering overscroll.
                                 mTouchMode = TOUCH_MODE_OVERSCROLL;
-                                if (rawDeltaY > 0) {
-                                    mEdgeGlowTop.onPull((float) overscroll / getHeight());
-                                    if (!mEdgeGlowBottom.isFinished()) {
-                                        mEdgeGlowBottom.onRelease();
-                                    }
-                                } else if (rawDeltaY < 0) {
-                                    mEdgeGlowBottom.onPull((float) overscroll / getHeight());
-                                    if (!mEdgeGlowTop.isFinished()) {
-                                        mEdgeGlowTop.onRelease();
+                                if (mEdgeGlowTop != null && mOverscrollGlow) {
+                                    if (rawDeltaY > 0) {
+                                        mEdgeGlowTop.onPull((float) overscroll / getHeight());
+                                        if (!mEdgeGlowBottom.isFinished()) {
+                                            mEdgeGlowBottom.onRelease();
+                                        }
+                                    } else if (rawDeltaY < 0) {
+                                        mEdgeGlowBottom.onPull((float) overscroll / getHeight());
+                                        if (!mEdgeGlowTop.isFinished()) {
+                                            mEdgeGlowTop.onRelease();
+                                        }
                                     }
                                 }
                             }
@@ -2323,15 +2334,17 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                         if (overscrollMode == OVER_SCROLL_ALWAYS ||
                                 (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS &&
                                         !contentFits())) {
-                            if (rawDeltaY > 0) {
-                                mEdgeGlowTop.onPull((float) -incrementalDeltaY / getHeight());
-                                if (!mEdgeGlowBottom.isFinished()) {
-                                    mEdgeGlowBottom.onRelease();
-                                }
-                            } else if (rawDeltaY < 0) {
-                                mEdgeGlowBottom.onPull((float) -incrementalDeltaY / getHeight());
-                                if (!mEdgeGlowTop.isFinished()) {
-                                    mEdgeGlowTop.onRelease();
+                            if (mEdgeGlowTop != null && mOverscrollGlow) {
+                                if (rawDeltaY > 0) {
+                                    mEdgeGlowTop.onPull((float) -incrementalDeltaY / getHeight());
+                                    if (!mEdgeGlowBottom.isFinished()) {
+                                        mEdgeGlowBottom.onRelease();
+                                    }
+                                } else if (rawDeltaY < 0) {
+                                    mEdgeGlowBottom.onPull((float) -incrementalDeltaY / getHeight());
+                                    if (!mEdgeGlowTop.isFinished()) {
+                                        mEdgeGlowTop.onRelease();
+                                    }
                                 }
                             }
                             invalidate();
@@ -2476,7 +2489,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
             setPressed(false);
 
-            if (mEdgeGlowTop != null) {
+            if (mEdgeGlowTop != null && mOverscrollGlow) {
                 mEdgeGlowTop.onRelease();
                 mEdgeGlowBottom.onRelease();
             }
@@ -2538,7 +2551,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                 }
             }
             
-            if (mEdgeGlowTop != null) {
+            if (mEdgeGlowTop != null && mOverscrollGlow) {
                 mEdgeGlowTop.onRelease();
                 mEdgeGlowBottom.onRelease();
             }
@@ -2582,7 +2595,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     @Override
     public void draw(Canvas canvas) {
         super.draw(canvas);
-        if (mEdgeGlowTop != null) {
+        if (mEdgeGlowTop != null && mOverscrollGlow) {
             final int scrollY = mScrollY;
             if (!mEdgeGlowTop.isFinished()) {
                 final int restoreCount = canvas.save();
@@ -2816,10 +2829,12 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                     (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && !contentFits())) {
                 mTouchMode = TOUCH_MODE_OVERFLING;
                 final int vel = (int) mScroller.getCurrVelocity();
-                if (delta > 0) {
-                    mEdgeGlowTop.onAbsorb(vel);
-                } else {
-                    mEdgeGlowBottom.onAbsorb(vel);
+                if (mEdgeGlowTop != null && mOverscrollGlow) {
+                    if (delta > 0) {
+                        mEdgeGlowTop.onAbsorb(vel);
+                    } else {
+                        mEdgeGlowBottom.onAbsorb(vel);
+                    }
                 }
             }
             invalidate();
@@ -4255,7 +4270,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     }
 
     private void finishGlows() {
-        if (mEdgeGlowTop != null) {
+        if (mEdgeGlowTop != null && mOverscrollGlow) {
             mEdgeGlowTop.finish();
             mEdgeGlowBottom.finish();
         }

@@ -50,7 +50,7 @@
             android:orientation="horizontal"/>    
 
         <com.android.systemui.statusbar.Clock
-            android:textAppearance="@*android:style/TextAppearance.StatusBar.Icon"
+            android:textAppearance="@style/TextAppearance.StatusBar.Clock"
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:singleLine="true"

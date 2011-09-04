@@ -25,4 +25,29 @@
     <style name="TextAppearance.StatusBar.IntruderAlert"
         parent="@android:style/TextAppearance.StatusBar">
     </style>
+    
+    <style name="TextAppearance.StatusBar.Clock" parent="@android:style/TextAppearance.StatusBar">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    
+    <style name="TextAppearance.StatusBar.ToggleButton" parent="@android:style/TextAppearance.StatusBar">
+        <item name="android:textSize">18sp</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+    
+    <style name="TextAppearance.StatusBar.NowPlaying" parent="@android:style/TextAppearance.StatusBar">
+        <item name="android:textSize">16sp</item>
+        <!-- Use textColorPrimaryDisableOnly to always render the text in white -->
+        <item name="android:textColor">?android:attr/textColorPrimaryDisableOnly</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+    
+    <style name="TextAppearance.StatusBar.TextTab" parent="@android:style/TextAppearance.StatusBar">
+        <item name="android:textColor">@color/text_tab</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">normal</item>
+    </style>
 </resources>

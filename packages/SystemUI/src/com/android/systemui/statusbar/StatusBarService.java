@@ -30,11 +30,13 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.app.StatusBarManager;
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.database.ContentObserver;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
@@ -46,6 +48,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.ServiceManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Slog;
 import android.util.Log;
@@ -57,6 +60,7 @@ import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewStub;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
@@ -77,6 +81,7 @@ import java.util.Set;
 
 import com.android.systemui.R;
 import com.android.systemui.statusbar.policy.StatusBarPolicy;
+import com.android.systemui.statusbar.multitasking.QuickControls;
 
 
 
@@ -118,6 +123,22 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
     ScrollView mScrollView;
     View mNotificationLinearLayout;
     View mExpandedContents;
+
+    // tabs:
+    View mNotifications;
+    View mMultitasking;
+    TextView mNotificationsTab;
+    TextView mMultitaskingTab;
+    private static final int NOTIFICATIONS_TAB = 1;
+    private static final int MULTITASKING_TAB = 2;
+    // power widget
+    QuickControls widget;
+    WidgetSettingsObserver mObserver;
+    Handler mpHandler;
+    boolean mShowMultitasking;
+
+    protected Context mContext;
+
     // top bar
     TextView mNoNotificationsTitle;
     TextView mClearButton;
@@ -170,6 +191,8 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
 
     // for disabling the status bar
     int mDisabled = 0;
+
+    boolean fingerOnTextTab = false;
 
     private class ExpandedDialog extends Dialog {
         ExpandedDialog(Context context) {
@@ -258,6 +281,8 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
     private void makeStatusBarView(Context context) {
         Resources res = context.getResources();
 
+        mContext = context;
+
         mIconSize = res.getDimensionPixelSize(com.android.internal.R.dimen.status_bar_icon_size);
 
         ExpandedView expanded = (ExpandedView)View.inflate(context,
@@ -294,6 +319,13 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         mScrollView = (ScrollView)expanded.findViewById(R.id.scroll);
         mNotificationLinearLayout = expanded.findViewById(R.id.notificationLinearLayout);
 
+        mNotifications = expanded.findViewById(R.id.expanded_notifications);
+        ViewStub stub = (ViewStub) expanded.findViewById(R.id.expanded_multitasking);
+        mMultitasking = stub.inflate();
+        
+        mNotifications.setVisibility(View.VISIBLE);
+        mMultitasking.setVisibility(View.GONE);
+
         mExpandedView.setVisibility(View.GONE);
         mOngoingTitle.setVisibility(View.GONE);
         mLatestTitle.setVisibility(View.GONE);
@@ -307,6 +339,66 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         mTrackingView.mService = this;
         mCloseView = (CloseDragHandle)mTrackingView.findViewById(R.id.close);
         mCloseView.mService = this;
+
+        mNotificationsTab = (TextView)mTrackingView.findViewById(R.id.tab_notifications);
+        mNotificationsTab.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                selectTab(NOTIFICATIONS_TAB);
+            }
+        });
+
+        mNotificationsTab.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        fingerOnTextTab = true;
+                    break;
+                    case MotionEvent.ACTION_UP:
+                        fingerOnTextTab = false;
+                    break;
+                }
+                return false;
+            }
+        });
+
+        mMultitaskingTab = (TextView)mTrackingView.findViewById(R.id.tab_multitasking);
+        mMultitaskingTab.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                selectTab(MULTITASKING_TAB);
+            }
+        });
+
+        mMultitaskingTab.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        fingerOnTextTab = true;
+                    break;
+                    case MotionEvent.ACTION_UP:
+                        fingerOnTextTab = false;
+                    break;
+                }
+                return false;
+            }
+        });
+
+        widget = (QuickControls) mMultitasking.findViewById(R.id.quick_controls_widget);
+        widget.setupWidget();
+        widget.setGlobalOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                animateCollapse();
+                return true;
+            }
+        });
+        mObserver = new WidgetSettingsObserver(null);
+        mObserver.observe();
+        mpHandler = new Handler();
+        showMultitaskingPanel();
 
         mEdgeBorder = res.getDimensionPixelSize(R.dimen.status_bar_edge_ignore);
 
@@ -497,7 +589,7 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         }
     }
 
-    View[] makeNotificationView(StatusBarNotification notification, ViewGroup parent) {
+    View[] makeNotificationView(final StatusBarNotification notification, ViewGroup parent) {
         Notification n = notification.notification;
         RemoteViews remoteViews = n.contentView;
         if (remoteViews == null) {
@@ -506,7 +598,18 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
 
         // create the row view
         LayoutInflater inflater = (LayoutInflater)getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        View row = inflater.inflate(R.layout.status_bar_latest_event, parent, false);
+        LatestItemContainer row = (LatestItemContainer) inflater.inflate(R.layout.status_bar_latest_event, parent, false);
+
+        if ((n.flags & Notification.FLAG_ONGOING_EVENT) == 0 && (n.flags & Notification.FLAG_NO_CLEAR) == 0) {
+            row.setOnSwipeCallback(new Runnable() {
+                public void run() {
+                    try {
+                        mBarService.onNotificationClear(notification.pkg, notification.tag, notification.id);
+                    } catch (RemoteException e) {
+                    }
+                }
+            });
+        }
 
         // bind the click event to the content area
         ViewGroup content = (ViewGroup)row.findViewById(R.id.content);
@@ -548,6 +651,7 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         } else {
             list = mLatest;
             parent = mLatestItems;
+            selectTab(NOTIFICATIONS_TAB);
         }
         // Construct the expanded view.
         final View[] views = makeNotificationView(notification, parent);
@@ -691,6 +795,14 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         mExpandedView.requestFocus(View.FOCUS_FORWARD);
         mTrackingView.setVisibility(View.VISIBLE);
         mExpandedView.setVisibility(View.VISIBLE);
+
+        if (mShowMultitasking) {
+            if (mLatest.hasVisibleItems()) {
+                selectTab(NOTIFICATIONS_TAB);
+            } else {
+                selectTab(MULTITASKING_TAB);
+            }
+        }
 
         if (!mTicking) {
             setDateViewVisibility(true, com.android.internal.R.anim.fade_in);
@@ -936,6 +1048,10 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         if (SPEW) {
             Slog.d(TAG, "Touch: rawY=" + event.getRawY() + " event=" + event + " mDisabled="
                 + mDisabled);
+        }
+
+        if (fingerOnTextTab) {
+            return false;
         }
 
         if ((mDisabled & StatusBarManager.DISABLE_EXPAND) != 0) {
@@ -1359,6 +1475,7 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
     }
 
     int getExpandedHeight() {
+        
         return mDisplay.getHeight() - mStatusBarView.getHeight() - mCloseView.getHeight();
     }
 
@@ -1369,8 +1486,33 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         }
     }
 
+    void selectTab(int which) {
+        switch(which) {
+            case NOTIFICATIONS_TAB: {
+                mNotifications.setVisibility(View.VISIBLE);
+                mMultitasking.setVisibility(View.GONE);
+                mExpandedContents = mExpandedView.findViewById(R.id.notificationLinearLayout);
+                // mNotificationsTab.setTextColor(getResources().getColor(R.color.active_tab_color));
+                // mMultitaskingTab.setTextColor(getResources().getColor(R.color.inactive_tab_color));
+                mNotificationsTab.setSelected(true);
+                mMultitaskingTab.setSelected(false);
+            } break;
+            case MULTITASKING_TAB: {
+                mNotifications.setVisibility(View.GONE);
+                mMultitasking.setVisibility(View.VISIBLE);
+                mExpandedContents = mExpandedView.findViewById(R.id.multitaskingLinearLayout);
+//                mNotificationsTab.setTextColor(getResources().getColor(R.color.inactive_tab_color));
+//                mMultitaskingTab.setTextColor(getResources().getColor(R.color.active_tab_color));
+                mNotificationsTab.setSelected(false);
+                mMultitaskingTab.setSelected(true);
+                // request all toggles to update their state
+                widget.updateWidget();
+            } break;
+        }
+    }
+
     /**
-     * The LEDs are turned o)ff when the notification panel is shown, even just a little bit.
+     * The LEDs are turned off when the notification panel is shown, even just a little bit.
      * This was added last-minute and is inconsistent with the way the rest of the notifications
      * are handled, because the notification isn't really cancelled.  The lights are just
      * turned off.  If any other notifications happen, the lights will turn back on.  Steve says
@@ -1498,4 +1640,53 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
             vibrate();
         }
     };
+
+    private class WidgetSettingsObserver extends ContentObserver {
+        public WidgetSettingsObserver(Handler handler) {
+            super(handler);
+        }
+
+        public void observe() {
+            ContentResolver resolver = mContext.getContentResolver();
+            resolver.registerContentObserver(
+                    Settings.System.getUriFor(Settings.System.MULTITASKING_PANEL),
+                    false, this);
+        }
+
+        public void unobserve() {
+            ContentResolver resolver = mContext.getContentResolver();
+            resolver.unregisterContentObserver(this);
+        }
+
+        @Override
+        public void onChangeUri(Uri uri, boolean selfChange) {
+            if (uri.equals(Settings.System.getUriFor(Settings.System.MULTITASKING_PANEL))) {
+                mpHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        showMultitaskingPanel();
+                    }
+                });
+            }
+        }
+    }
+
+    protected void showMultitaskingPanel() {
+        mShowMultitasking = Settings.System.getInt(mContext.getContentResolver(),
+                       Settings.System.MULTITASKING_PANEL, 1) == 1;
+
+        if (mShowMultitasking) {
+            mNotificationsTab.setVisibility(View.VISIBLE);
+            mMultitaskingTab.setVisibility(View.VISIBLE);
+            if (mLatest.hasVisibleItems()) {
+                selectTab(NOTIFICATIONS_TAB);
+            } else {
+                selectTab(MULTITASKING_TAB);
+            }
+        } else {
+            selectTab(NOTIFICATIONS_TAB);
+            mNotificationsTab.setVisibility(View.GONE);
+            mMultitaskingTab.setVisibility(View.GONE);
+        }
+    }
 }

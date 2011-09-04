@@ -31,13 +31,43 @@
          android:layout_height="wrap_content"
          android:layout_weight="1"
          android:background="#ff212121"
-         />
+        />
 
     <com.android.systemui.statusbar.CloseDragHandle android:id="@+id/close"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         >
+        
+        <LinearLayout android:id="@+id/tabs_layout"
+            android:orientation="horizontal"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:background="#ff212121"
+            android:gravity="center"
+            >
+            <TextView android:id="@+id/tab_notifications"
+                android:text="@string/tab_notifications"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingBottom="6dip"
+                android:paddingTop="6dip"
+                android:textAppearance="@style/TextAppearance.StatusBar.TextTab"
+                />
+            <TextView android:id="@+id/tab_multitasking"
+                android:text="@string/tab_multitasking"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingBottom="6dip"
+                android:paddingTop="6dip"
+                android:textAppearance="@style/TextAppearance.StatusBar.TextTab"
+                />
+        </LinearLayout>
+        
         <ImageView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

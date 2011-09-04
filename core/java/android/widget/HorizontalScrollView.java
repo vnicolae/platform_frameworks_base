@@ -22,6 +22,7 @@ import android.util.AttributeSet;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.provider.Settings;
 import android.view.View;
 import android.view.VelocityTracker;
 import android.view.ViewConfiguration;
@@ -126,6 +127,8 @@ public class HorizontalScrollView extends FrameLayout {
     
     private int mOverscrollDistance;
     private int mOverflingDistance;
+
+    private boolean mOverscrollGlow;
 
     /**
      * ID of the active pointer. This is used to retain consistency during
@@ -542,18 +545,20 @@ public class HorizontalScrollView extends FrameLayout {
                     if (overscrollMode == OVER_SCROLL_ALWAYS ||
                             (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && range > 0)) {
                         final int pulledToX = oldX + deltaX;
-                        if (pulledToX < 0) {
-                            mEdgeGlowLeft.onPull((float) deltaX / getWidth());
-                            if (!mEdgeGlowRight.isFinished()) {
-                                mEdgeGlowRight.onRelease();
-                            }
-                        } else if (pulledToX > range) {
-                            mEdgeGlowRight.onPull((float) deltaX / getWidth());
-                            if (!mEdgeGlowLeft.isFinished()) {
-                                mEdgeGlowLeft.onRelease();
+                        if (mEdgeGlowLeft != null && mOverscrollGlow) {
+                            if (pulledToX < 0) {
+                                mEdgeGlowLeft.onPull((float) deltaX / getWidth());
+                                if (!mEdgeGlowRight.isFinished()) {
+                                    mEdgeGlowRight.onRelease();
+                                }
+                            } else if (pulledToX > range) {
+                                mEdgeGlowRight.onPull((float) deltaX / getWidth());
+                                if (!mEdgeGlowLeft.isFinished()) {
+                                    mEdgeGlowLeft.onRelease();
+                                }
                             }
                         }
-                        if (mEdgeGlowLeft != null
+                        if (mEdgeGlowLeft != null && mOverscrollGlow
                                 && (!mEdgeGlowLeft.isFinished() || !mEdgeGlowRight.isFinished())) {
                             invalidate();
                         }
@@ -584,7 +589,7 @@ public class HorizontalScrollView extends FrameLayout {
                         mVelocityTracker.recycle();
                         mVelocityTracker = null;
                     }
-                    if (mEdgeGlowLeft != null) {
+                    if (mEdgeGlowLeft != null && mOverscrollGlow) {
                         mEdgeGlowLeft.onRelease();
                         mEdgeGlowRight.onRelease();
                     }
@@ -601,7 +606,7 @@ public class HorizontalScrollView extends FrameLayout {
                         mVelocityTracker.recycle();
                         mVelocityTracker = null;
                     }
-                    if (mEdgeGlowLeft != null) {
+                    if (mEdgeGlowLeft != null && mOverscrollGlow) {
                         mEdgeGlowLeft.onRelease();
                         mEdgeGlowRight.onRelease();
                     }
@@ -1107,7 +1112,7 @@ public class HorizontalScrollView extends FrameLayout {
                 final int range = getScrollRange();
                 final int overscrollMode = getOverScrollMode();
                 if (overscrollMode == OVER_SCROLL_ALWAYS ||
-                        (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && range > 0)) {
+                        (overscrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && range > 0) && mEdgeGlowLeft != null && mOverscrollGlow) {
                     if (x < 0 && oldX >= 0) {
                         mEdgeGlowLeft.onAbsorb((int) mScroller.getCurrVelocity());
                     } else if (x > range && oldX <= range) {
@@ -1304,6 +1309,9 @@ public class HorizontalScrollView extends FrameLayout {
 
         // Calling this with the present values causes it to re-clam them
         scrollTo(mScrollX, mScrollY);
+
+        mOverscrollGlow = Settings.System.getInt(mContext.getContentResolver(),
+                      Settings.System.OVERSCROLL_GLOW, 0) == 1;
     }
 
     @Override
@@ -1407,7 +1415,7 @@ public class HorizontalScrollView extends FrameLayout {
     @Override
     public void draw(Canvas canvas) {
         super.draw(canvas);
-        if (mEdgeGlowLeft != null) {
+        if (mEdgeGlowLeft != null && mOverscrollGlow) {
             final int scrollX = mScrollX;
             if (!mEdgeGlowLeft.isFinished()) {
                 final int restoreCount = canvas.save();

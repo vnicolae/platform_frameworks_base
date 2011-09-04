@@ -16,7 +16,10 @@
 
 package com.android.internal.policy.impl;
 
+import com.android.internal.R;
+
 import android.app.Activity;
+import android.app.ActivityManager.RunningAppProcessInfo;
 import android.app.ActivityManagerNative;
 import android.app.IActivityManager;
 import android.app.IUiModeManager;
@@ -39,6 +42,7 @@ import android.os.IBinder;
 import android.os.LocalPowerManager;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
@@ -109,10 +113,12 @@ import android.view.WindowManagerImpl;
 import android.view.WindowManagerPolicy;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
+import android.widget.Toast;
 import android.media.IAudioService;
 import android.media.AudioManager;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * WindowManagerPolicy implementation for the Android phone UI.  This
@@ -284,6 +290,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
     // Behavior of ENDCALL Button.  (See Settings.System.END_BUTTON_BEHAVIOR.)
     int mEndcallBehavior;
+
+    // keeps track of long press state
+    boolean mIsLongPress;
 
     // Behavior of POWER button while in-call and screen on.
     // (See Settings.Secure.INCALL_POWER_BUTTON_BEHAVIOR.)
@@ -518,6 +527,75 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             showRecentAppsDialog();
         }
     };
+
+    Runnable mBackLongPress = new Runnable() {
+        public void run() {
+            if (Settings.Secure.getInt(mContext.getContentResolver(),
+                    Settings.Secure.KILL_APP_LONGPRESS_BACK, 0) == 0) {
+                // Bail out unless the user has elected to turn this on.
+                return;
+            }
+            try {
+                performHapticFeedbackLw(null, HapticFeedbackConstants.LONG_PRESS, false);
+                IActivityManager mgr = ActivityManagerNative.getDefault();
+                List<RunningAppProcessInfo> apps = mgr.getRunningAppProcesses();
+                for (RunningAppProcessInfo app : apps) {
+                    if (app.uid >= Process.FIRST_APPLICATION_UID && app.uid <= Process.LAST_APPLICATION_UID
+                                && app.importance == RunningAppProcessInfo.IMPORTANCE_FOREGROUND) {
+                        Toast.makeText(mContext, R.string.app_killed_message, Toast.LENGTH_SHORT).show();
+                        if (app.pkgList != null && (apps.size() > 0)) {
+                            mgr.forceStopPackage(app.pkgList[0]);
+                        } else {
+                            Process.killProcess(app.pid);
+                        }
+                        break;
+                    }
+                }
+            } catch (RemoteException e) {
+                // Do nothing; just let it go
+            }
+        }
+    };
+
+    /**
+     * When a volumeup-key longpress expires, skip songs based on key press
+     */
+    Runnable mVolumeUpLongPress = new Runnable() {
+        public void run() {
+            // set the long press flag to true
+            mIsLongPress = true;
+
+            // Shamelessly copied from Kmobs LockScreen controls, works for Pandora, etc...
+            sendMediaButtonEvent(KeyEvent.KEYCODE_MEDIA_NEXT);
+        };
+    };
+
+    /**
+     * When a volumedown-key longpress expires, skip songs based on key press
+     */
+    Runnable mVolumeDownLongPress = new Runnable() {
+        public void run() {
+            // set the long press flag to true
+            mIsLongPress = true;
+
+            // Shamelessly copied from Kmobs LockScreen controls, works for Pandora, etc...
+            sendMediaButtonEvent(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
+        };
+    };
+
+    protected void sendMediaButtonEvent(int code) {
+        long eventtime = SystemClock.uptimeMillis();
+
+        Intent downIntent = new Intent(Intent.ACTION_MEDIA_BUTTON, null);
+        KeyEvent downEvent = new KeyEvent(eventtime, eventtime, KeyEvent.ACTION_DOWN, code, 0);
+        downIntent.putExtra(Intent.EXTRA_KEY_EVENT, downEvent);
+        mContext.sendOrderedBroadcast(downIntent, null);
+
+        Intent upIntent = new Intent(Intent.ACTION_MEDIA_BUTTON, null);
+        KeyEvent upEvent = new KeyEvent(eventtime, eventtime, KeyEvent.ACTION_UP, code, 0);
+        upIntent.putExtra(Intent.EXTRA_KEY_EVENT, upEvent);
+        mContext.sendOrderedBroadcast(upIntent, null);
+    }
 
     /**
      * Create (if necessary) and launch the recent apps dialog
@@ -1108,6 +1186,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             mHandler.removeCallbacks(mHomeLongPress);
         }
 
+        if ((keyCode == KeyEvent.KEYCODE_BACK && !down)) {
+            mHandler.removeCallbacks(mBackLongPress);
+        }
+
         // If the HOME button is currently being held, then we do special
         // chording with it.
         if (mHomePressed) {
@@ -1178,6 +1260,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 mHomePressed = true;
             }
             return true;
+        } else if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (down && repeatCount == 0) {
+                mHandler.postDelayed(mBackLongPress, ViewConfiguration.getGlobalActionKeyTimeout());
+            }
+            return false;
         } else if (keyCode == KeyEvent.KEYCODE_MENU) {
             // Hijack modified menu keys for debugging features
             final int chordBug = KeyEvent.META_SHIFT_ON;
@@ -1731,6 +1818,22 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             mBroadcastWakeLock.release();
         }
     }
+
+    void handleVolumeLongPress(int keycode) {
+        Runnable btnHandler;
+
+        if (keycode == KeyEvent.KEYCODE_VOLUME_UP)
+            btnHandler = mVolumeUpLongPress;
+        else
+            btnHandler = mVolumeDownLongPress;
+
+        mHandler.postDelayed(btnHandler, ViewConfiguration.getLongPressTimeout());
+    }
+
+    void handleVolumeLongPressAbort() {
+        mHandler.removeCallbacks(mVolumeUpLongPress);
+        mHandler.removeCallbacks(mVolumeDownLongPress);
+    }
  
     /** {@inheritDoc} */
     @Override
@@ -1740,6 +1843,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         final boolean canceled = (flags & KeyEvent.FLAG_CANCELED) != 0;
 
         final boolean isInjected = (policyFlags & WindowManagerPolicy.FLAG_INJECTED) != 0;
+        boolean isBtnMouse = (keyCode == BTN_MOUSE);
 
         // If screen is off then we treat the case where the keyguard is open but hidden
         // the same as if it were open and in front.
@@ -1758,6 +1862,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             performHapticFeedbackLw(null, HapticFeedbackConstants.VIRTUAL_KEY, false);
         }
 
+
         // Basic policy based on screen state and keyguard.
         // FIXME: This policy isn't quite correct.  We shouldn't care whether the screen
         //        is on or off, really.  We should care about whether the device is in an
@@ -1767,6 +1872,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         //        the device some other way (which is why we have an exemption here for injected
         //        events).
         int result;
+
         if (isScreenOn || isInjected) {
             // When the screen is on or if the key is injected pass the key to the application.
             result = ACTION_PASS_TO_USER;
@@ -1776,7 +1882,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             result = 0;
 
             final boolean isWakeKey = (policyFlags
-                    & (WindowManagerPolicy.FLAG_WAKE | WindowManagerPolicy.FLAG_WAKE_DROPPED)) != 0;
+                    & (WindowManagerPolicy.FLAG_WAKE | WindowManagerPolicy.FLAG_WAKE_DROPPED)) != 0
+                    || isBtnMouse;
             if (down && isWakeKey) {
                 if (keyguardActive) {
                     // If the keyguard is showing, let it decide what to do with the wake key.
@@ -1792,6 +1899,13 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         switch (keyCode) {
             case KeyEvent.KEYCODE_VOLUME_DOWN:
             case KeyEvent.KEYCODE_VOLUME_UP: {
+                if(!down)
+                {
+                    handleVolumeLongPressAbort();
+
+                    if (!mIsLongPress && (result & ACTION_PASS_TO_USER) == 0)
+                        handleVolumeKey(AudioManager.STREAM_MUSIC, keyCode);
+                }
                 if (down) {
                     ITelephony telephonyService = getTelephonyService();
                     if (telephonyService != null) {
@@ -1828,9 +1942,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     }
 
                     if (isMusicActive() && (result & ACTION_PASS_TO_USER) == 0) {
-                        // If music is playing but we decided not to pass the key to the
-                        // application, handle the volume change here.
-                        handleVolumeKey(AudioManager.STREAM_MUSIC, keyCode);
+                        // initialize long press flag to false for volume events
+                        mIsLongPress = false;
+                        // if the button is held long enough, the following
+                        // procedure will set mIsLongPress=true
+                        handleVolumeLongPress(keyCode);
                         break;
                     }
                 }

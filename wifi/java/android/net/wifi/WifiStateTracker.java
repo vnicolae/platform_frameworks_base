@@ -2509,7 +2509,9 @@ public class WifiStateTracker extends NetworkStateTracker {
                         if (NetworkUtils.runDhcp(mInterfaceName, mDhcpInfo)) {
                             event = EVENT_INTERFACE_CONFIGURATION_SUCCEEDED;
                             Log.d(TAG, "DHCP succeeded with lease: " + mDhcpInfo.leaseDuration);
-                            setDhcpRenewalAlarm(mDhcpInfo.leaseDuration);
+                            if (mDhcpInfo.leaseDuration >= 0) {
+                                setDhcpRenewalAlarm(mDhcpInfo.leaseDuration);
+                            }
                        } else {
                             event = EVENT_INTERFACE_CONFIGURATION_FAILED;
                             Log.e(TAG, "DHCP request failed: " + NetworkUtils.getDhcpError());

@@ -142,6 +142,11 @@ LOCAL_SRC_FILES:= \
 	android_content_res_ObbScanner.cpp \
     android_content_res_Configuration.cpp
 
+ifeq ($(BOARD_HAVE_FM_RADIO),true)
+        LOCAL_CFLAGS += -DHAVE_FM_RADIO
+	LOCAL_SRC_FILES += android_hardware_fm.cpp
+endif
+
 LOCAL_C_INCLUDES += \
 	$(JNI_H_INCLUDE) \
 	$(LOCAL_PATH)/android/graphics \
@@ -176,7 +181,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libgui \
 	libsurfaceflinger_client \
 	libcamera_client \
-	libskiagl \
+        libskiagl \
 	libskia \
 	libsqlite \
 	libdvm \

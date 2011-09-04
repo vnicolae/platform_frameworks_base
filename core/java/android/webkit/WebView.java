@@ -48,6 +48,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.ServiceManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.text.IClipboard;
 import android.text.Selection;
 import android.text.Spannable;
@@ -790,6 +791,8 @@ public class WebView extends AbsoluteLayout
     private int mOverscrollDeltaX;
     private int mOverscrollDeltaY;
 
+    private boolean mOverscrollGlow;
+
     // Used to match key downs and key ups
     private boolean mGotKeyDown;
 
@@ -980,6 +983,8 @@ public class WebView extends AbsoluteLayout
         mWebViewCore = new WebViewCore(context, this, mCallbackProxy, javascriptInterfaces);
         mDatabase = WebViewDatabase.getInstance(context);
         mScroller = new OverScroller(context);
+        mOverscrollGlow = Settings.System.getInt(context.getContentResolver(),
+                      Settings.System.OVERSCROLL_GLOW, 0) == 1;
 
         updateMultiTouchSupport(context);
     }
@@ -2592,7 +2597,7 @@ public class WebView extends AbsoluteLayout
 
         // Only show overscroll bars if there was no movement in any direction
         // as a result of scrolling.
-        if (mEdgeGlowTop != null && oldY == mScrollY && oldX == mScrollX) {
+        if (mEdgeGlowTop != null && oldY == mScrollY && oldX == mScrollX && mOverscrollGlow) {
             // Don't show left/right glows if we fit the whole content.
             // Also don't show if there was vertical movement.
             if (maxX > 0) {
@@ -3540,7 +3545,7 @@ public class WebView extends AbsoluteLayout
     @Override
     public void draw(Canvas canvas) {
         super.draw(canvas);
-        if (mEdgeGlowTop != null && drawEdgeGlows(canvas)) {
+        if (mEdgeGlowTop != null && drawEdgeGlows(canvas) && mOverscrollGlow) {
             invalidate();
         }
     }
@@ -5613,7 +5618,7 @@ public class WebView extends AbsoluteLayout
             final int rangeX = computeMaxScrollX();
             final int rangeY = computeMaxScrollY();
 
-            if (mEdgeGlowTop != null) {
+            if (mEdgeGlowTop != null && mOverscrollGlow) {
                 // Save the deltas for overscroll glow.
                 mOverscrollDeltaX = deltaX;
                 mOverscrollDeltaY = deltaY;
@@ -5622,7 +5627,7 @@ public class WebView extends AbsoluteLayout
             overScrollBy(deltaX, deltaY, oldX, oldY,
                     rangeX, rangeY,
                     mOverscrollDistance, mOverscrollDistance, true);
-            if (mEdgeGlowTop != null &&
+            if (mEdgeGlowTop != null && mOverscrollGlow &&
                     (!mEdgeGlowTop.isFinished() || !mEdgeGlowBottom.isFinished() ||
                             !mEdgeGlowLeft.isFinished() || !mEdgeGlowRight.isFinished())) {
                 invalidate();
@@ -5655,7 +5660,7 @@ public class WebView extends AbsoluteLayout
         }
 
         // Release any pulled glows
-        if (mEdgeGlowTop != null) {
+        if (mEdgeGlowTop != null && mOverscrollGlow) {
             mEdgeGlowTop.onRelease();
             mEdgeGlowBottom.onRelease();
             mEdgeGlowLeft.onRelease();
@@ -5676,7 +5681,7 @@ public class WebView extends AbsoluteLayout
         }
 
         // Release any pulled glows
-        if (mEdgeGlowTop != null) {
+        if (mEdgeGlowTop != null && mOverscrollGlow) {
             mEdgeGlowTop.onRelease();
             mEdgeGlowBottom.onRelease();
             mEdgeGlowLeft.onRelease();

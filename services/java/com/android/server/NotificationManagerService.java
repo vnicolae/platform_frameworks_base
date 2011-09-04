@@ -112,6 +112,8 @@ public class NotificationManagerService extends INotificationManager.Stub
     private boolean mScreenOn = true;
     private boolean mInCall = false;
     private boolean mNotificationPulseEnabled;
+    private boolean mNotificationAlwaysOn;
+    private boolean mNotificationCharging;
     // This is true if we have received a new notification while the screen is off
     // (that is, if mLedNotification was set while the screen was off)
     // This is reset to false when the screen is turned on.
@@ -285,6 +287,10 @@ public class NotificationManagerService extends INotificationManager.Stub
                     Notification.FLAG_FOREGROUND_SERVICE);
         }
 
+        public void onNotificationClear(String pkg, String tag, int id) {
+            cancelNotification(pkg, tag, id, 0, Notification.FLAG_FOREGROUND_SERVICE);
+        }
+
         public void onPanelRevealed() {
             synchronized (mNotificationList) {
                 // sound
@@ -405,6 +411,10 @@ public class NotificationManagerService extends INotificationManager.Stub
             ContentResolver resolver = mContext.getContentResolver();
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.NOTIFICATION_LIGHT_PULSE), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.NOTIFICATION_LIGHT_ALWAYS_ON), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.NOTIFICATION_LIGHT_CHARGING), false, this);
             update();
         }
 
@@ -416,9 +426,27 @@ public class NotificationManagerService extends INotificationManager.Stub
             ContentResolver resolver = mContext.getContentResolver();
             boolean pulseEnabled = Settings.System.getInt(resolver,
                         Settings.System.NOTIFICATION_LIGHT_PULSE, 0) != 0;
+            boolean alwaysOn = Settings.System.getInt(resolver,
+                        Settings.System.NOTIFICATION_LIGHT_ALWAYS_ON, 1) != 0;
+            boolean charging = Settings.System.getInt(resolver,
+                        Settings.System.NOTIFICATION_LIGHT_CHARGING, 1) != 0;
+
+            boolean shouldUpdate = false;
+
             if (mNotificationPulseEnabled != pulseEnabled) {
                 mNotificationPulseEnabled = pulseEnabled;
-                updateNotificationPulse();
+                shouldUpdate = true;
+            }
+            if (mNotificationAlwaysOn != alwaysOn) {
+                mNotificationAlwaysOn = alwaysOn;
+                shouldUpdate = true;
+            }
+            if (mNotificationCharging != charging) {
+                mNotificationCharging = charging;
+                shouldUpdate = true;
+            }
+            if (shouldUpdate) {
+                updateLights();
             }
         }
     }
@@ -1063,7 +1091,7 @@ public class NotificationManagerService extends INotificationManager.Stub
     private void updateLightsLocked()
     {
         // Battery low always shows, other states only show if charging.
-        if (mBatteryLow) {
+        if (mBatteryLow && mNotificationCharging) {
             if (mBatteryCharging) {
                 mBatteryLight.setColor(BATTERY_LOW_ARGB);
             } else {
@@ -1071,7 +1099,7 @@ public class NotificationManagerService extends INotificationManager.Stub
                 mBatteryLight.setFlashing(BATTERY_LOW_ARGB, LightsService.LIGHT_FLASH_TIMED,
                         BATTERY_BLINK_ON, BATTERY_BLINK_OFF);
             }
-        } else if (mBatteryCharging) {
+        } else if (mBatteryCharging && mNotificationCharging) {
             if (mBatteryFull) {
                 mBatteryLight.setColor(BATTERY_FULL_ARGB);
             } else {
@@ -1082,7 +1110,7 @@ public class NotificationManagerService extends INotificationManager.Stub
         }
 
         // clear pending pulse notification if screen is on
-        if (mScreenOn || mLedNotification == null) {
+        if ((mScreenOn && !mNotificationAlwaysOn) || mLedNotification == null) {
             mPendingPulseNotification = false;
         }
 
@@ -1093,14 +1121,14 @@ public class NotificationManagerService extends INotificationManager.Stub
             if (n > 0) {
                 mLedNotification = mLights.get(n-1);
             }
-            if (mLedNotification != null && !mScreenOn) {
+            if (mLedNotification != null && (!mScreenOn || mNotificationAlwaysOn)) {
                 mPendingPulseNotification = true;
             }
         }
 
         // we only flash if screen is off and persistent pulsing is enabled
         // and we are not currently in a call
-        if (!mPendingPulseNotification || mScreenOn || mInCall) {
+        if (!mPendingPulseNotification || mScreenOn && !mNotificationAlwaysOn || mInCall) {
             mNotificationLight.turnOff();
         } else {
             int ledARGB = mLedNotification.notification.ledARGB;
