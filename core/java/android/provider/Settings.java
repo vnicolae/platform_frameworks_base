@@ -3619,7 +3619,7 @@ public final class Settings {
                 while (intent == null && c.moveToNext()) {
                     try {
                         String intentURI = c.getString(c.getColumnIndexOrThrow(INTENT));
-                        intent = Intent.parseUri(intentURI, 0);
+                        intent = Intent.getIntent(intentURI);
                     } catch (java.net.URISyntaxException e) {
                         // The stored URL is bad...  ignore it.
                     } catch (IllegalArgumentException e) {
@@ -3677,7 +3677,7 @@ public final class Settings {
             ContentValues values = new ContentValues();
             if (title != null) values.put(TITLE, title);
             if (folder != null) values.put(FOLDER, folder);
-            values.put(INTENT, intent.toUri(0));
+            values.put(INTENT, intent.toURI());
             if (shortcut != 0) values.put(SHORTCUT, (int) shortcut);
             values.put(ORDERING, ordering);
             return cr.insert(CONTENT_URI, values);
@@ -3729,7 +3729,7 @@ public final class Settings {
 
             Intent intent;
             try {
-                intent = Intent.parseUri(intentUri, 0);
+                intent = Intent.getIntent(intentUri);
             } catch (URISyntaxException e) {
                 return "";
             }

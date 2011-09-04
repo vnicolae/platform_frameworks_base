@@ -50,11 +50,6 @@ ssize_t processJarFiles(Bundle* bundle, ZipFile* zip);
 status_t writeAPK(Bundle* bundle, const sp<AaptAssets>& assets,
                        const String8& outputFile)
 {
-    #if BENCHMARK
-    fprintf(stdout, "BENCHMARK: Starting APK Bundling \n");
-    long startAPKTime = clock();
-    #endif /* BENCHMARK */
-
     status_t result = NO_ERROR;
     ZipFile* zip = NULL;
     int count;
@@ -177,21 +172,6 @@ status_t writeAPK(Bundle* bundle, const sp<AaptAssets>& assets,
         }
     }
 
-    // If we've been asked to generate a dependency file for the .ap_ package,
-    // do so here
-    if (bundle->getGenDependencies()) {
-        // The dependency file gets output to the same directory
-        // as the specified output file with an additional .d extension.
-        // e.g. bin/resources.ap_.d
-        String8 dependencyFile = outputFile;
-        dependencyFile.append(".d");
-
-        FILE* fp = fopen(dependencyFile.string(), "a");
-        // Add this file to the dependency file
-        fprintf(fp, "%s \\\n", outputFile.string());
-        fclose(fp);
-    }
-
     assert(result == NO_ERROR);
 
 bail:
@@ -207,10 +187,6 @@ bail:
 
     if (result == NO_ERROR && bundle->getVerbose())
         printf("Done!\n");
-
-    #if BENCHMARK
-    fprintf(stdout, "BENCHMARK: End APK Bundling. Time Elapsed: %f ms \n",(clock() - startAPKTime)/1000.0);
-    #endif /* BENCHMARK */
     return result;
 }
 

@@ -133,11 +133,11 @@ public class NotificationManagerService extends INotificationManager.Stub
     private boolean mBatteryFull;
     private NotificationRecord mLedNotification;
 
-    private static int mBatteryLowARGB;
-    private static int mBatteryMediumARGB;
-    private static int mBatteryFullARGB;
-    private static int mBatteryLedOn;
-    private static int mBatteryLedOff;
+    private static final int BATTERY_LOW_ARGB = 0xFFFF0000; // Charging Low - red solid on
+    private static final int BATTERY_MEDIUM_ARGB = 0xFFFFFF00;    // Charging - orange solid on
+    private static final int BATTERY_FULL_ARGB = 0xFF00FF00; // Charging Full - green solid on
+    private static final int BATTERY_BLINK_ON = 125;
+    private static final int BATTERY_BLINK_OFF = 2875;
 
     private static String idDebugString(Context baseContext, String packageName, int id) {
         Context c = null;
@@ -450,17 +450,6 @@ public class NotificationManagerService extends INotificationManager.Stub
         mDefaultNotificationLedOff = resources.getInteger(
                 com.android.internal.R.integer.config_defaultNotificationLedOff);
 
-        mBatteryLowARGB = mContext.getResources().getInteger(
-                com.android.internal.R.integer.config_notificationsBatteryLowARGB);
-        mBatteryMediumARGB = mContext.getResources().getInteger(
-                com.android.internal.R.integer.config_notificationsBatteryMediumARGB);
-        mBatteryFullARGB = mContext.getResources().getInteger(
-                com.android.internal.R.integer.config_notificationsBatteryFullARGB);
-        mBatteryLedOn = mContext.getResources().getInteger(
-                com.android.internal.R.integer.config_notificationsBatteryLedOn);
-        mBatteryLedOff = mContext.getResources().getInteger(
-                com.android.internal.R.integer.config_notificationsBatteryLedOff);
-
         // Don't start allowing notifications until the setup wizard has run once.
         // After that, including subsequent boots, init with notifications turned on.
         // This works on the first boot because the setup wizard will toggle this
@@ -519,24 +508,6 @@ public class NotificationManagerService extends INotificationManager.Stub
                     record = mToastQueue.get(index);
                     record.update(duration);
                 } else {
-                    // Limit the number of toasts that any given package except the android
-                    // package can enqueue.  Prevents DOS attacks and deals with leaks.
-                    if (!"android".equals(pkg)) {
-                        int count = 0;
-                        final int N = mToastQueue.size();
-                        for (int i=0; i<N; i++) {
-                             final ToastRecord r = mToastQueue.get(i);
-                             if (r.pkg.equals(pkg)) {
-                                 count++;
-                                 if (count >= MAX_PACKAGE_NOTIFICATIONS) {
-                                     Slog.e(TAG, "Package has already posted " + count
-                                            + " toasts. Not showing more. Package=" + pkg);
-                                     return;
-                                 }
-                             }
-                        }
-                    }
-
                     record = new ToastRecord(callingPid, pkg, callback, duration);
                     mToastQueue.add(record);
                     index = mToastQueue.size() - 1;
@@ -1094,17 +1065,17 @@ public class NotificationManagerService extends INotificationManager.Stub
         // Battery low always shows, other states only show if charging.
         if (mBatteryLow) {
             if (mBatteryCharging) {
-                mBatteryLight.setColor(mBatteryLowARGB);
+                mBatteryLight.setColor(BATTERY_LOW_ARGB);
             } else {
                 // Flash when battery is low and not charging
-                mBatteryLight.setFlashing(mBatteryLowARGB, LightsService.LIGHT_FLASH_TIMED,
-                        mBatteryLedOn, mBatteryLedOff);
+                mBatteryLight.setFlashing(BATTERY_LOW_ARGB, LightsService.LIGHT_FLASH_TIMED,
+                        BATTERY_BLINK_ON, BATTERY_BLINK_OFF);
             }
         } else if (mBatteryCharging) {
             if (mBatteryFull) {
-                mBatteryLight.setColor(mBatteryFullARGB);
+                mBatteryLight.setColor(BATTERY_FULL_ARGB);
             } else {
-                mBatteryLight.setColor(mBatteryMediumARGB);
+                mBatteryLight.setColor(BATTERY_MEDIUM_ARGB);
             }
         } else {
             mBatteryLight.turnOff();

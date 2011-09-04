@@ -127,11 +127,10 @@ status_t StagefrightMediaScanner::processFile(
             || !strcasecmp(extension, ".rtttl")
             || !strcasecmp(extension, ".rtx")
             || !strcasecmp(extension, ".ota")) {
-        status_t status = HandleMIDI(path, &client);
-        if (status != OK) {
-            return status;
-        }
-    } else if (mRetriever->setDataSource(path) == OK) {
+        return HandleMIDI(path, &client);
+    }
+
+    if (mRetriever->setDataSource(path) == OK) {
         const char *value;
         if ((value = mRetriever->extractMetadata(
                         METADATA_KEY_MIMETYPE)) != NULL) {

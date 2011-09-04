@@ -10,10 +10,6 @@
 #include "ResourceTable.h"
 #include "Images.h"
 
-#include "CrunchCache.h"
-#include "FileFinder.h"
-#include "CacheUpdater.h"
-
 #define NOISY(x) // x
 
 // ==========================================================================
@@ -52,12 +48,6 @@ static String8 parseResourceName(const String8& leaf)
 ResourceTypeSet::ResourceTypeSet()
     :RefBase(),
      KeyedVector<String8,sp<AaptGroup> >()
-{
-}
-
-FilePathStore::FilePathStore()
-    :RefBase(),
-     Vector<String8>()
 {
 }
 
@@ -296,19 +286,18 @@ static status_t makeFileResources(Bundle* bundle, const sp<AaptAssets>& assets,
 static status_t preProcessImages(Bundle* bundle, const sp<AaptAssets>& assets,
                           const sp<ResourceTypeSet>& set)
 {
+    ResourceDirIterator it(set, String8("drawable"));
+    Vector<sp<AaptFile> > newNameFiles;
+    Vector<String8> newNamePaths;
     bool hasErrors = false;
-    ssize_t res = NO_ERROR;
-    if (bundle->getUseCrunchCache() == false) {
-        ResourceDirIterator it(set, String8("drawable"));
-        Vector<sp<AaptFile> > newNameFiles;
-        Vector<String8> newNamePaths;
-        while ((res=it.next()) == NO_ERROR) {
-            res = preProcessImage(bundle, assets, it.getFile(), NULL);
-            if (res < NO_ERROR) {
-                hasErrors = true;
-            }
+    ssize_t res;
+    while ((res=it.next()) == NO_ERROR) {
+        res = preProcessImage(bundle, assets, it.getFile(), NULL);
+        if (res < NO_ERROR) {
+            hasErrors = true;
         }
     }
+
     return (hasErrors || (res < NO_ERROR)) ? UNKNOWN_ERROR : NO_ERROR;
 }
 
@@ -757,35 +746,6 @@ status_t massageManifest(Bundle* bundle, sp<XMLNode> root)
                 n ## s = resources->valueAt(index); \
             } \
         } while (0)
-
-status_t updatePreProcessedCache(Bundle* bundle)
-{
-    #if BENCHMARK
-    fprintf(stdout, "BENCHMARK: Starting PNG PreProcessing \n");
-    long startPNGTime = clock();
-    #endif /* BENCHMARK */
-
-    String8 source(bundle->getResourceSourceDirs()[0]);
-    String8 dest(bundle->getCrunchedOutputDir());
-
-    FileFinder* ff = new SystemFileFinder();
-    CrunchCache cc(source,dest,ff);
-
-    CacheUpdater* cu = new SystemCacheUpdater(bundle);
-    size_t numFiles = cc.crunch(cu);
-
-    if (bundle->getVerbose())
-        fprintf(stdout, "Crunched %d PNG files to update cache\n", (int)numFiles);
-
-    delete ff;
-    delete cu;
-
-    #if BENCHMARK
-    fprintf(stdout, "BENCHMARK: End PNG PreProcessing. Time Elapsed: %f ms \n"
-            ,(clock() - startPNGTime)/1000.0);
-    #endif /* BENCHMARK */
-    return 0;
-}
 
 status_t buildResources(Bundle* bundle, const sp<AaptAssets>& assets)
 {
@@ -1695,8 +1655,7 @@ static status_t writeLayoutClasses(
 
 static status_t writeSymbolClass(
     FILE* fp, const sp<AaptAssets>& assets, bool includePrivate,
-    const sp<AaptSymbols>& symbols, const String8& className, int indent,
-    bool nonConstantId)
+    const sp<AaptSymbols>& symbols, const String8& className, int indent)
 {
     fprintf(fp, "%spublic %sfinal class %s {\n",
             getIndentSpace(indent),
@@ -1705,10 +1664,6 @@ static status_t writeSymbolClass(
 
     size_t i;
     status_t err = NO_ERROR;
-
-    const char * id_format = nonConstantId ?
-            "%spublic static int %s=0x%08x;\n" :
-            "%spublic static final int %s=0x%08x;\n";
 
     size_t N = symbols->getSymbols().size();
     for (i=0; i<N; i++) {
@@ -1762,7 +1717,7 @@ static status_t writeSymbolClass(
         if (deprecated) {
             fprintf(fp, "%s@Deprecated\n", getIndentSpace(indent));
         }
-        fprintf(fp, id_format,
+        fprintf(fp, "%spublic static final int %s=0x%08x;\n",
                 getIndentSpace(indent),
                 String8(name).string(), (int)sym.int32Val);
     }
@@ -1813,7 +1768,7 @@ static status_t writeSymbolClass(
         if (nclassName == "styleable") {
             styleableSymbols = nsymbols;
         } else {
-            err = writeSymbolClass(fp, assets, includePrivate, nsymbols, nclassName, indent, nonConstantId);
+            err = writeSymbolClass(fp, assets, includePrivate, nsymbols, nclassName, indent);
         }
         if (err != NO_ERROR) {
             return err;
@@ -1884,23 +1839,11 @@ status_t writeResourceSymbols(Bundle* bundle, const sp<AaptAssets>& assets,
         "\n"
         "package %s;\n\n", package.string());
 
-        status_t err = writeSymbolClass(fp, assets, includePrivate, symbols, className, 0, bundle->getNonConstantId());
+        status_t err = writeSymbolClass(fp, assets, includePrivate, symbols, className, 0);
         if (err != NO_ERROR) {
             return err;
         }
         fclose(fp);
-
-        // If we were asked to generate a dependency file, we'll go ahead and add this R.java
-        // as a target in the dependency file right next to it.
-        if (bundle->getGenDependencies()) {
-            // Add this R.java to the dependency file
-            String8 dependencyFile(bundle->getRClassDir());
-            dependencyFile.appendPath("R.java.d");
-
-            fp = fopen(dependencyFile.string(), "a");
-            fprintf(fp,"%s \\\n", dest.string());
-            fclose(fp);
-        }
     }
 
     return NO_ERROR;
@@ -2221,28 +2164,4 @@ writeProguardFile(Bundle* bundle, const sp<AaptAssets>& assets)
     fclose(fp);
 
     return err;
-}
-
-// Loops through the string paths and writes them to the file pointer
-// Each file path is written on its own line with a terminating backslash.
-status_t writePathsToFile(const sp<FilePathStore>& files, FILE* fp)
-{
-    status_t deps = -1;
-    for (size_t file_i = 0; file_i < files->size(); ++file_i) {
-        // Add the full file path to the dependency file
-        fprintf(fp, "%s \\\n", files->itemAt(file_i).string());
-        deps++;
-    }
-    return deps;
-}
-
-status_t
-writeDependencyPreReqs(Bundle* bundle, const sp<AaptAssets>& assets, FILE* fp, bool includeRaw)
-{
-    status_t deps = -1;
-    deps += writePathsToFile(assets->getFullResPaths(), fp);
-    if (includeRaw) {
-        deps += writePathsToFile(assets->getFullAssetPaths(), fp);
-    }
-    return deps;
 }

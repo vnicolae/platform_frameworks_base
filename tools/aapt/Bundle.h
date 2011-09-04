@@ -25,7 +25,6 @@ typedef enum Command {
     kCommandAdd,
     kCommandRemove,
     kCommandPackage,
-    kCommandCrunch,
 } Command;
 
 /*
@@ -41,16 +40,13 @@ public:
           mWantUTF16(false), mValues(false),
           mCompressionMethod(0), mOutputAPKFile(NULL),
           mManifestPackageNameOverride(NULL), mInstrumentationPackageNameOverride(NULL),
-          mIsOverlayPackage(false),
-          mAutoAddOverlay(false), mGenDependencies(false),
-          mAssetSourceDir(NULL), 
-          mCrunchedOutputDir(NULL), mProguardFile(NULL),
+          mAutoAddOverlay(false), mAssetSourceDir(NULL), mProguardFile(NULL),
           mAndroidManifestFile(NULL), mPublicOutputFile(NULL),
           mRClassDir(NULL), mResourceIntermediatesDir(NULL), mManifestMinSdkVersion(NULL),
           mMinSdkVersion(NULL), mTargetSdkVersion(NULL), mMaxSdkVersion(NULL),
-          mVersionCode(NULL), mVersionName(NULL), mCustomPackage(NULL), mExtraPackages(NULL),
-          mMaxResVersion(NULL), mDebugMode(false), mNonConstantId(false), mProduct(NULL),
-          mUseCrunchCache(false), mArgc(0), mArgv(NULL)
+          mVersionCode(NULL), mVersionName(NULL), mCustomPackage(NULL),
+          mMaxResVersion(NULL), mDebugMode(false), mProduct(NULL),
+          mArgc(0), mArgv(NULL)
         {}
     ~Bundle(void) {}
 
@@ -96,20 +92,14 @@ public:
     void setManifestPackageNameOverride(const char * val) { mManifestPackageNameOverride = val; }
     const char* getInstrumentationPackageNameOverride() const { return mInstrumentationPackageNameOverride; }
     void setInstrumentationPackageNameOverride(const char * val) { mInstrumentationPackageNameOverride = val; }
-    bool getIsOverlayPackage() const { return mIsOverlayPackage; }
-    void setIsOverlayPackage(bool val) { mIsOverlayPackage = val; }
     bool getAutoAddOverlay() { return mAutoAddOverlay; }
     void setAutoAddOverlay(bool val) { mAutoAddOverlay = val; }
-    bool getGenDependencies() { return mGenDependencies; }
-    void setGenDependencies(bool val) { mGenDependencies = val; }
 
     /*
      * Input options.
      */
     const char* getAssetSourceDir() const { return mAssetSourceDir; }
     void setAssetSourceDir(const char* dir) { mAssetSourceDir = dir; }
-    const char* getCrunchedOutputDir() const { return mCrunchedOutputDir; }
-    void setCrunchedOutputDir(const char* dir) { mCrunchedOutputDir = dir; }
     const char* getProguardFile() const { return mProguardFile; }
     void setProguardFile(const char* file) { mProguardFile = file; }
     const android::Vector<const char*>& getResourceSourceDirs() const { return mResourceSourceDirs; }
@@ -145,18 +135,12 @@ public:
     void setVersionName(const char* val) { mVersionName = val; }
     const char* getCustomPackage() const { return mCustomPackage; }
     void setCustomPackage(const char* val) { mCustomPackage = val; }
-    const char* getExtraPackages() const { return mExtraPackages; }
-    void setExtraPackages(const char* val) { mExtraPackages = val; }
     const char* getMaxResVersion() const { return mMaxResVersion; }
     void setMaxResVersion(const char * val) { mMaxResVersion = val; }
     bool getDebugMode() { return mDebugMode; }
     void setDebugMode(bool val) { mDebugMode = val; }
-    bool getNonConstantId() { return mNonConstantId; }
-    void setNonConstantId(bool val) { mNonConstantId = val; }
     const char* getProduct() const { return mProduct; }
     void setProduct(const char * val) { mProduct = val; }
-    void setUseCrunchCache(bool val) { mUseCrunchCache = val; }
-    bool getUseCrunchCache() { return mUseCrunchCache; }
 
     /*
      * Set and get the file specification.
@@ -233,11 +217,8 @@ private:
     const char* mOutputAPKFile;
     const char* mManifestPackageNameOverride;
     const char* mInstrumentationPackageNameOverride;
-    bool        mIsOverlayPackage;
     bool        mAutoAddOverlay;
-    bool        mGenDependencies;
     const char* mAssetSourceDir;
-    const char* mCrunchedOutputDir;
     const char* mProguardFile;
     const char* mAndroidManifestFile;
     const char* mPublicOutputFile;
@@ -256,12 +237,9 @@ private:
     const char* mVersionCode;
     const char* mVersionName;
     const char* mCustomPackage;
-    const char* mExtraPackages;
     const char* mMaxResVersion;
     bool        mDebugMode;
-    bool        mNonConstantId;
     const char* mProduct;
-    bool        mUseCrunchCache;
 
     /* file specification */
     int         mArgc;

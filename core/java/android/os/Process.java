@@ -257,12 +257,13 @@ public class Process {
      * @param enableDebugger True if debugging should be enabled for this process.
      * @param zygoteArgs Additional arguments to supply to the zygote process.
      * 
-     * @return An object that describes the result of the attempt to start the process.
+     * @return int If > 0 the pid of the new process; if 0 the process is
+     *         being emulated by a thread
      * @throws RuntimeException on fatal start failure
      * 
      * {@hide}
      */
-    public static final ProcessStartResult start(final String processClass,
+    public static final int start(final String processClass,
                                   final String niceName,
                                   int uid, int gid, int[] gids,
                                   int debugFlags,
@@ -293,7 +294,8 @@ public class Process {
             } else {
                 new Thread(runnable).start();
             }
-            return new ProcessStartResult();
+            
+            return 0;
         }
     }
     
@@ -301,7 +303,7 @@ public class Process {
      * Start a new process.  Don't supply a custom nice name.
      * {@hide}
      */
-    public static final ProcessStartResult start(String processClass, int uid, int gid,
+    public static final int start(String processClass, int uid, int gid,
             int[] gids, int debugFlags, String[] zygoteArgs) {
         return start(processClass, "", uid, gid, gids, 
                 debugFlags, zygoteArgs);
@@ -416,11 +418,14 @@ public class Process {
      * and returns the child's pid. Please note: the present implementation
      * replaces newlines in the argument list with spaces.
      * @param args argument list
-     * @return An object that describes the result of the attempt to start the process.
+     * @return PID of new child process
      * @throws ZygoteStartFailedEx if process start failed for any reason
      */
-    private static ProcessStartResult zygoteSendArgsAndGetResult(ArrayList<String> args)
+    private static int zygoteSendArgsAndGetPid(ArrayList<String> args)
             throws ZygoteStartFailedEx {
+
+        int pid;
+
         openZygoteSocketIfNeeded();
 
         try {
@@ -431,8 +436,7 @@ public class Process {
              * b) a number of newline-separated argument strings equal to count
              *
              * After the zygote process reads these it will write the pid of
-             * the child or -1 on failure, followed by boolean to
-             * indicate whether a wrapper process was used.
+             * the child or -1 on failure.
              */
 
             sZygoteWriter.write(Integer.toString(args.size()));
@@ -452,13 +456,11 @@ public class Process {
             sZygoteWriter.flush();
 
             // Should there be a timeout on this?
-            ProcessStartResult result = new ProcessStartResult();
-            result.pid = sZygoteInputStream.readInt();
-            if (result.pid < 0) {
+            pid = sZygoteInputStream.readInt();
+
+            if (pid < 0) {
                 throw new ZygoteStartFailedEx("fork() failed");
             }
-            result.usingWrapper = sZygoteInputStream.readBoolean();
-            return result;
         } catch (IOException ex) {
             try {
                 if (sZygoteSocket != null) {
@@ -473,6 +475,8 @@ public class Process {
 
             throw new ZygoteStartFailedEx(ex);
         }
+
+        return pid;
     }
 
     /**
@@ -486,16 +490,18 @@ public class Process {
      * new process should setgroup() to.
      * @param enableDebugger True if debugging should be enabled for this process.
      * @param extraArgs Additional arguments to supply to the zygote process.
-     * @return An object that describes the result of the attempt to start the process.
+     * @return PID
      * @throws ZygoteStartFailedEx if process start failed for any reason
      */
-    private static ProcessStartResult startViaZygote(final String processClass,
+    private static int startViaZygote(final String processClass,
                                   final String niceName,
                                   final int uid, final int gid,
                                   final int[] gids,
                                   int debugFlags,
                                   String[] extraArgs)
                                   throws ZygoteStartFailedEx {
+        int pid;
+
         synchronized(Process.class) {
             ArrayList<String> argsForZygote = new ArrayList<String>();
 
@@ -547,9 +553,15 @@ public class Process {
                     argsForZygote.add(arg);
                 }
             }
-
-            return zygoteSendArgsAndGetResult(argsForZygote);
+            
+            pid = zygoteSendArgsAndGetPid(argsForZygote);
         }
+
+        if (pid <= 0) {
+            throw new ZygoteStartFailedEx("zygote start failed:" + pid);
+        }
+
+        return pid;
     }
     
     /**
@@ -597,20 +609,6 @@ public class Process {
      */
     public static final int getUidForPid(int pid) {
         String[] procStatusLabels = { "Uid:" };
-        long[] procStatusValues = new long[1];
-        procStatusValues[0] = -1;
-        Process.readProcLines("/proc/" + pid + "/status", procStatusLabels, procStatusValues);
-        return (int) procStatusValues[0];
-    }
-
-    /**
-     * Returns the parent process id for a currently running process.
-     * @param pid the process id
-     * @return the parent process id of the process, or -1 if the process is not running.
-     * @hide
-     */
-    public static final int getParentPid(int pid) {
-        String[] procStatusLabels = { "PPid:" };
         long[] procStatusValues = new long[1];
         procStatusValues[0] = -1;
         Process.readProcLines("/proc/" + pid + "/status", procStatusLabels, procStatusValues);
@@ -828,21 +826,4 @@ public class Process {
      * @hide
      */
     public static final native long getPss(int pid);
-
-    /**
-     * Specifies the outcome of having started a process.
-     * @hide
-     */
-    public static final class ProcessStartResult {
-        /**
-         * The PID of the newly started process.
-         * Always >= 0.  (If the start failed, an exception will have been thrown instead.)
-         */
-        public int pid;
-
-        /**
-         * True if the process was started with a wrapper attached.
-         */
-        public boolean usingWrapper;
-    }
 }

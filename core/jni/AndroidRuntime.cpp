@@ -879,11 +879,8 @@ bail:
  * Start the Android runtime.  This involves starting the virtual machine
  * and calling the "static void main(String[] args)" method in the class
  * named by "className".
- *
- * Passes the main function two arguments, the class name and the specified
- * options string.
  */
-void AndroidRuntime::start(const char* className, const char* options)
+void AndroidRuntime::start(const char* className, const bool startSystemServer)
 {
     LOGD("\n>>>>>> AndroidRuntime START %s <<<<<<\n",
             className != NULL ? className : "(unknown)");
@@ -898,7 +895,7 @@ void AndroidRuntime::start(const char* className, const char* options)
      * 'startSystemServer == true' means runtime is obslete and not run from 
      * init.rc anymore, so we print out the boot start event here.
      */
-    if (strcmp(options, "start-system-server") == 0) {
+    if (startSystemServer) {
         /* track our progress through the boot sequence */
         const int LOG_BOOT_PROGRESS_START = 3000;
         LOG_EVENT_LONG(LOG_BOOT_PROGRESS_START, 
@@ -932,13 +929,13 @@ void AndroidRuntime::start(const char* className, const char* options)
 
     /*
      * We want to call main() with a String array with arguments in it.
-     * At present we have two arguments, the class name and an option string.
-     * Create an array to hold them.
+     * At present we only have one argument, the class name.  Create an
+     * array to hold it.
      */
     jclass stringClass;
     jobjectArray strArray;
     jstring classNameStr;
-    jstring optionsStr;
+    jstring startSystemServerStr;
 
     stringClass = env->FindClass("java/lang/String");
     assert(stringClass != NULL);
@@ -947,8 +944,9 @@ void AndroidRuntime::start(const char* className, const char* options)
     classNameStr = env->NewStringUTF(className);
     assert(classNameStr != NULL);
     env->SetObjectArrayElement(strArray, 0, classNameStr);
-    optionsStr = env->NewStringUTF(options);
-    env->SetObjectArrayElement(strArray, 1, optionsStr);
+    startSystemServerStr = env->NewStringUTF(startSystemServer ? 
+                                                 "true" : "false");
+    env->SetObjectArrayElement(strArray, 1, startSystemServerStr);
 
     /*
      * Start VM.  This thread becomes the main thread of the VM, and will
@@ -990,6 +988,12 @@ void AndroidRuntime::start(const char* className, const char* options)
 
 bail:
     free(slashClassName);
+}
+
+void AndroidRuntime::start()
+{
+    start("com.android.internal.os.RuntimeInit",
+        false /* Don't start the system server */);
 }
 
 void AndroidRuntime::onExit(int code)

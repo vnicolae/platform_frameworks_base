@@ -29,7 +29,7 @@ class SkColorFilterGlue {
 public:
 
     static void finalizer(JNIEnv* env, jobject clazz, SkColorFilter* obj) {
-        SkSafeUnref(obj);
+        obj->safeUnref();
     }
 
     static SkColorFilter* CreatePorterDuffFilter(JNIEnv* env, jobject,

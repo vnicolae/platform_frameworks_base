@@ -109,9 +109,7 @@ public class VolumePreference extends SeekBarPreference implements
     }
 
     public void onActivityStop() {
-        if (mSeekBarVolumizer != null) {
-            mSeekBarVolumizer.stopSample();
-        }
+        cleanup();
     }
 
     /**

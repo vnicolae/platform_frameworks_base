@@ -28,9 +28,6 @@ import android.os.Bundle;
 import android.os.RemoteException;
 import android.util.Log;
 
-import com.android.internal.R;
-import com.android.internal.telephony.GsmAlphabet;
-
 /**
  * A GPS Network-initiated Handler class used by LocationManager.
  *
@@ -185,8 +182,8 @@ public class GpsNetInitiatedHandler {
             return;
         }
 
-        String title = getNotifTitle(notif, mContext);
-        String message = getNotifMessage(notif, mContext);
+        String title = getNotifTitle(notif);
+        String message = getNotifMessage(notif);
 
         if (DEBUG) Log.d(TAG, "setNiNotification, notifyId: " + notif.notificationId +
                 ", title: " + title +
@@ -205,8 +202,8 @@ public class GpsNetInitiatedHandler {
             mNiNotification.defaults &= ~Notification.DEFAULT_SOUND;
         }        
 
-        mNiNotification.flags = Notification.FLAG_ONGOING_EVENT | Notification.FLAG_AUTO_CANCEL;
-        mNiNotification.tickerText = getNotifTicker(notif, mContext);
+        mNiNotification.flags = Notification.FLAG_ONGOING_EVENT;
+        mNiNotification.tickerText = getNotifTicker(notif);
 
         // if not to popup dialog immediately, pending intent will open the dialog
         Intent intent = !mPopupImmediately ? getDlgIntent(notif) : new Intent();
@@ -237,8 +234,8 @@ public class GpsNetInitiatedHandler {
     private Intent getDlgIntent(GpsNiNotification notif)
     {
         Intent intent = new Intent();
-        String title = getDialogTitle(notif, mContext);
-        String message = getDialogMessage(notif, mContext);
+        String title = getDialogTitle(notif);
+        String message = getDialogMessage(notif);
 
         // directly bring up the NI activity
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -289,32 +286,58 @@ public class GpsNetInitiatedHandler {
      */
     static String decodeGSMPackedString(byte[] input)
     {
-        final char PADDING_CHAR = 0x00;
-        int lengthBytes = input.length;
-        int lengthSeptets = (lengthBytes * 8) / 7;
-        String decoded;
+        final char CHAR_CR = 0x0D;
+        int nStridx = 0;
+        int nPckidx = 0;
+        int num_bytes = input.length;
+        int cPrev = 0;
+        int cCurr = 0;
+        byte nShift;
+        byte nextChar;
+        byte[] stringBuf = new byte[input.length * 2];
+        String result = "";
 
-        /* Special case where the last 7 bits in the last byte could hold a valid
-         * 7-bit character or a padding character. Drop the last 7-bit character
-         * if it is a padding character.
-         */
-        if (lengthBytes % 7 == 0) {
-            if (lengthBytes > 0) {
-                if ((input[lengthBytes - 1] >> 1) == PADDING_CHAR) {
-                    lengthSeptets = lengthSeptets - 1;
+        while(nPckidx < num_bytes)
+        {
+            nShift = (byte) (nStridx & 0x07);
+            cCurr = input[nPckidx++];
+            if (cCurr < 0) cCurr += 256;
+
+            /* A 7-bit character can be split at the most between two bytes of packed
+             ** data.
+             */
+            nextChar = (byte) (( (cCurr << nShift) | (cPrev >> (8-nShift)) ) & 0x7F);
+            stringBuf[nStridx++] = nextChar;
+
+            /* Special case where the whole of the next 7-bit character fits inside
+             ** the current byte of packed data.
+             */
+            if(nShift == 6)
+            {
+                /* If the next 7-bit character is a CR (0x0D) and it is the last
+                 ** character, then it indicates a padding character. Drop it.
+                 */
+                if (nPckidx == num_bytes || (cCurr >> 1) == CHAR_CR)
+                {
+                    break;
                 }
+
+                nextChar = (byte) (cCurr >> 1);
+                stringBuf[nStridx++] = nextChar;
             }
+
+            cPrev = cCurr;
         }
 
-        decoded = GsmAlphabet.gsm7BitPackedToString(input, 0, lengthSeptets);
-
-        // Return "" if decoding of GSM packed string fails
-        if (null == decoded) {
-            Log.e(TAG, "Decoding of GSM packed string failed");
-            decoded = "";
+        try {
+            result = new String(stringBuf, 0, nStridx, "US-ASCII");
+        }
+        catch (UnsupportedEncodingException e)
+        {
+            Log.e(TAG, e.getMessage());
         }
 
-        return decoded;
+        return result;
     }
 
     static String decodeUTF8String(byte[] input)
@@ -389,40 +412,41 @@ public class GpsNetInitiatedHandler {
     }
 
     // change this to configure notification display
-    static private String getNotifTicker(GpsNiNotification notif, Context context)
+    static private String getNotifTicker(GpsNiNotification notif)
     {
-        String ticker = String.format(context.getString(R.string.gpsNotifTicker),
+        String ticker = String.format("Position request! ReqId: [%s] ClientName: [%s]",
                 decodeString(notif.requestorId, mIsHexInput, notif.requestorIdEncoding),
                 decodeString(notif.text, mIsHexInput, notif.textEncoding));
         return ticker;
     }
 
     // change this to configure notification display
-    static private String getNotifTitle(GpsNiNotification notif, Context context)
+    static private String getNotifTitle(GpsNiNotification notif)
     {
-        String title = String.format(context.getString(R.string.gpsNotifTitle));
+        String title = String.format("Position Request");
         return title;
     }
 
     // change this to configure notification display
-    static private String getNotifMessage(GpsNiNotification notif, Context context)
+    static private String getNotifMessage(GpsNiNotification notif)
     {
-        String message = String.format(context.getString(R.string.gpsNotifMessage),
+        String message = String.format(
+                "NI Request received from [%s] for client [%s]!",
                 decodeString(notif.requestorId, mIsHexInput, notif.requestorIdEncoding),
                 decodeString(notif.text, mIsHexInput, notif.textEncoding));
         return message;
     }       
 
     // change this to configure dialog display (for verification)
-    static public String getDialogTitle(GpsNiNotification notif, Context context)
+    static public String getDialogTitle(GpsNiNotification notif)
     {
-        return getNotifTitle(notif, context);
+        return getNotifTitle(notif);
     }
 
     // change this to configure dialog display (for verification)
-    static private String getDialogMessage(GpsNiNotification notif, Context context)
+    static private String getDialogMessage(GpsNiNotification notif)
     {
-        return getNotifMessage(notif, context);
+        return getNotifMessage(notif);
     }
 
 }

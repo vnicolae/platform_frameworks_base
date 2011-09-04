@@ -1353,8 +1353,6 @@ int doPackage(Bundle* bundle)
     status_t err;
     sp<AaptAssets> assets;
     int N;
-    FILE* fp;
-    String8 dependencyFile;
 
     // -c zz_ZZ means do pseudolocalization
     ResourceFilter filter;
@@ -1389,18 +1387,6 @@ int doPackage(Bundle* bundle)
 
     // Load the assets.
     assets = new AaptAssets();
-
-    // Set up the resource gathering in assets if we're going to generate
-    // dependency files. Every time we encounter a resource while slurping
-    // the tree, we'll add it to these stores so we have full resource paths
-    // to write to a dependency file.
-    if (bundle->getGenDependencies()) {
-        sp<FilePathStore> resPathStore = new FilePathStore;
-        assets->setFullResPaths(resPathStore);
-        sp<FilePathStore> assetPathStore = new FilePathStore;
-        assets->setFullAssetPaths(assetPathStore);
-    }
-
     err = assets->slurpFromArgs(bundle);
     if (err < 0) {
         goto bail;
@@ -1410,7 +1396,7 @@ int doPackage(Bundle* bundle)
         assets->print();
     }
 
-    // If they asked for any fileAs that need to be compiled, do so.
+    // If they asked for any files that need to be compiled, do so.
     if (bundle->getResourceSourceDirs().size() || bundle->getAndroidManifestFile()) {
         err = buildResources(bundle, assets);
         if (err != 0) {
@@ -1424,46 +1410,10 @@ int doPackage(Bundle* bundle)
         goto bail;
     }
 
-    // If we've been asked to generate a dependency file, do that here
-    if (bundle->getGenDependencies()) {
-        // If this is the packaging step, generate the dependency file next to
-        // the output apk (e.g. bin/resources.ap_.d)
-        if (outputAPKFile) {
-            dependencyFile = String8(outputAPKFile);
-            // Add the .d extension to the dependency file.
-            dependencyFile.append(".d");
-        } else {
-            // Else if this is the R.java dependency generation step,
-            // generate the dependency file in the R.java package subdirectory
-            // e.g. gen/com/foo/app/R.java.d
-            dependencyFile = String8(bundle->getRClassDir());
-            dependencyFile.appendPath("R.java.d");
-        }
-        // Make sure we have a clean dependency file to start with
-        fp = fopen(dependencyFile, "w");
-        fclose(fp);
-    }
-
     // Write out R.java constants
     if (assets->getPackage() == assets->getSymbolsPrivatePackage()) {
         if (bundle->getCustomPackage() == NULL) {
-            // Write the R.java file into the appropriate class directory
-            // e.g. gen/com/foo/app/R.java
             err = writeResourceSymbols(bundle, assets, assets->getPackage(), true);
-            // If we have library files, we're going to write our R.java file into
-            // the appropriate class directory for those libraries as well.
-            // e.g. gen/com/foo/app/lib/R.java
-            if (bundle->getExtraPackages() != NULL) {
-                // Split on colon
-                String8 libs(bundle->getExtraPackages());
-                char* packageString = strtok(libs.lockBuffer(libs.length()), ":");
-                while (packageString != NULL) {
-                    // Write the R.java file out with the correct package name
-                    err = writeResourceSymbols(bundle, assets, String8(packageString), true);
-                    packageString = strtok(NULL, ":");
-                }
-                libs.unlockBuffer();
-            }
         } else {
             const String8 customPkg(bundle->getCustomPackage());
             err = writeResourceSymbols(bundle, assets, customPkg, true);
@@ -1497,49 +1447,10 @@ int doPackage(Bundle* bundle)
         }
     }
 
-    // If we've been asked to generate a dependency file, we need to finish up here.
-    // the writeResourceSymbols and writeAPK functions have already written the target
-    // half of the dependency file, now we need to write the prerequisites. (files that
-    // the R.java file or .ap_ file depend on)
-    if (bundle->getGenDependencies()) {
-        // Now that writeResourceSymbols or writeAPK has taken care of writing
-        // the targets to our dependency file, we'll write the prereqs
-        fp = fopen(dependencyFile, "a+");
-        fprintf(fp, " : ");
-        bool includeRaw = (outputAPKFile != NULL);
-        err = writeDependencyPreReqs(bundle, assets, fp, includeRaw);
-        // Also manually add the AndroidManifeset since it's not under res/ or assets/
-        // and therefore was not added to our pathstores during slurping
-        fprintf(fp, "%s \\\n", bundle->getAndroidManifestFile());
-        fclose(fp);
-    }
-
     retVal = 0;
 bail:
     if (SourcePos::hasErrors()) {
         SourcePos::printErrors(stderr);
     }
     return retVal;
-}
-
-/*
- * Do PNG Crunching
- * PRECONDITIONS
- *  -S flag points to a source directory containing drawable* folders
- *  -C flag points to destination directory. The folder structure in the
- *     source directory will be mirrored to the destination (cache) directory
- *
- * POSTCONDITIONS
- *  Destination directory will be updated to match the PNG files in
- *  the source directory. 
- */
-int doCrunch(Bundle* bundle)
-{
-    fprintf(stdout, "Crunching PNG Files in ");
-    fprintf(stdout, "source dir: %s\n", bundle->getResourceSourceDirs()[0]);
-    fprintf(stdout, "To destination dir: %s\n", bundle->getCrunchedOutputDir());
-
-    updatePreProcessedCache(bundle);
-
-    return NO_ERROR;
 }

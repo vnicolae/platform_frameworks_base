@@ -534,8 +534,11 @@ final class CdmaSMSDispatcher extends SMSDispatcher {
         }
 
         String mimeType = pduDecoder.getValueString();
-        if (mimeType != null && mimeType.equals(WspTypeDecoder.CONTENT_TYPE_B_PUSH_SYNCML_NOTI)) {
-            return true;
+        if (mimeType == null) {
+            int binaryContentType = (int)pduDecoder.getValue32();
+            if (binaryContentType == WspTypeDecoder.CONTENT_TYPE_B_PUSH_SYNCML_NOTI) {
+                return true;
+            }
         }
         return false;
     }

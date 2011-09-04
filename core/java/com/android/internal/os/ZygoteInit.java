@@ -22,8 +22,6 @@ import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
 import android.net.LocalServerSocket;
 import android.os.Debug;
-import android.os.FileUtils;
-import android.os.Process;
 import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.util.Config;
@@ -69,7 +67,7 @@ public class ZygoteInit {
     private static final int PRELOAD_GC_THRESHOLD = 50000;
 
     public static final String USAGE_STRING =
-            " <\"start-system-server\"|\"\" for startSystemServer>";
+            " <\"true\"|\"false\" for startSystemServer>";
 
     private static LocalServerSocket sServerSocket;
 
@@ -245,11 +243,6 @@ public class ZygoteInit {
         if (errno != 0) {
             Log.e(TAG, "setregid() failed. errno: " + errno);
         }
-    }
-
-    static void preload() {
-        preloadClasses();
-        preloadResources();
     }
 
     /**
@@ -501,20 +494,11 @@ public class ZygoteInit {
 
         closeServerSocket();
 
-        if (parsedArgs.niceName != null) {
-            Process.setArgV0(parsedArgs.niceName);
-        }
-
-        if (parsedArgs.invokeWith != null) {
-            WrapperInit.execApplication(parsedArgs.invokeWith,
-                    parsedArgs.niceName, null, parsedArgs.remainingArgs);
-        } else {
-            /*
-             * Pass the remaining arguments to SystemServer.
-             */
-            RuntimeInit.zygoteInit(parsedArgs.remainingArgs);
-        }
-
+        /*
+         * Pass the remaining arguments to SystemServer.
+         * "--nice-name=system_server com.android.server.SystemServer"
+         */
+        RuntimeInit.zygoteInit(parsedArgs.remainingArgs);
         /* should never reach here */
     }
 
@@ -539,13 +523,20 @@ public class ZygoteInit {
 
         try {
             parsedArgs = new ZygoteConnection.Arguments(args);
-            ZygoteConnection.applyDebuggerSystemProperty(parsedArgs);
-            ZygoteConnection.applyInvokeWithSystemProperty(parsedArgs);
+
+            /*
+             * Enable debugging of the system process if *either* the command line flags
+             * indicate it should be debuggable or the ro.debuggable system property
+             * is set to "1"
+             */
+            int debugFlags = parsedArgs.debugFlags;
+            if ("1".equals(SystemProperties.get("ro.debuggable")))
+                debugFlags |= Zygote.DEBUG_ENABLE_DEBUGGER;
 
             /* Request to fork the system server process */
             pid = Zygote.forkSystemServer(
                     parsedArgs.uid, parsedArgs.gid,
-                    parsedArgs.gids, parsedArgs.debugFlags, null,
+                    parsedArgs.gids, debugFlags, null,
                     parsedArgs.permittedCapabilities,
                     parsedArgs.effectiveCapabilities);
         } catch (IllegalArgumentException ex) {
@@ -570,7 +561,9 @@ public class ZygoteInit {
             registerZygoteSocket();
             EventLog.writeEvent(LOG_BOOT_PROGRESS_PRELOAD_START,
                 SystemClock.uptimeMillis());
-            preload();
+            preloadClasses();
+            //cacheRegisterMaps();
+            preloadResources();
             EventLog.writeEvent(LOG_BOOT_PROGRESS_PRELOAD_END,
                 SystemClock.uptimeMillis());
 
@@ -585,9 +578,9 @@ public class ZygoteInit {
                 throw new RuntimeException(argv[0] + USAGE_STRING);
             }
 
-            if (argv[1].equals("start-system-server")) {
+            if (argv[1].equals("true")) {
                 startSystemServer();
-            } else if (!argv[1].equals("")) {
+            } else if (!argv[1].equals("false")) {
                 throw new RuntimeException(argv[0] + USAGE_STRING);
             }
 
@@ -767,13 +760,6 @@ public class ZygoteInit {
     static native void closeDescriptor(FileDescriptor fd)
             throws IOException;
 
-    static void closeDescriptorQuietly(FileDescriptor fd) {
-        try {
-            closeDescriptor(fd);
-        } catch (IOException e) {
-        }
-    }
-
     /**
      * Toggles the close-on-exec flag for the specified file descriptor.
      *
@@ -823,21 +809,6 @@ public class ZygoteInit {
      */
     static native FileDescriptor createFileDescriptor(int fd)
             throws IOException;
-
-    /**
-     * Gets the integer value of a file descriptor.
-     *
-     * @param fd non-null; file descriptor
-     * @return integer OS file descriptor
-     */
-    static native int getFDFromFileDescriptor(FileDescriptor fd);
-
-    /**
-     * Creates a pipe.
-     *
-     * @param outFds non-null; an array to hold two file descriptors, initially null
-     */
-    static native void pipe(FileDescriptor[] outFds) throws IOException;
 
     /**
      * Class not instantiable.

@@ -22,7 +22,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.Cursor;
 import android.location.Criteria;
 import android.location.IGpsStatusListener;
 import android.location.IGpsStatusProvider;
@@ -34,7 +33,6 @@ import android.location.LocationProvider;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.SntpClient;
-import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -48,7 +46,6 @@ import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.WorkSource;
 import android.provider.Settings;
-import android.provider.Telephony.Carriers;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.SmsMessage;
 import android.telephony.TelephonyManager;
@@ -256,7 +253,6 @@ public class GpsLocationProvider implements LocationProviderInterface {
 
     private String mAGpsApn;
     private int mAGpsDataConnectionState;
-    private int mAGpsDataConnectionIpAddr;
     private final ConnectivityManager mConnMgr;
     private final GpsNetInitiatedHandler mNIHandler; 
 
@@ -493,37 +489,15 @@ public class GpsLocationProvider implements LocationProviderInterface {
         }
 
         if (info != null) {
-            boolean dataEnabled = Settings.Secure.getInt(mContext.getContentResolver(),
-                                                         Settings.Secure.MOBILE_DATA, 1) == 1;
-            boolean networkAvailable = info.isAvailable() && dataEnabled;
-            String defaultApn = getSelectedApn();
-            if (defaultApn == null) {
-                defaultApn = "dummy-apn";
-            }
-
             native_update_network_state(info.isConnected(), info.getType(),
-                                        info.isRoaming(), networkAvailable,
-                                        info.getExtraInfo(), defaultApn);
+                    info.isRoaming(), info.getExtraInfo());
         }
 
         if (info != null && info.getType() == ConnectivityManager.TYPE_MOBILE_SUPL
                 && mAGpsDataConnectionState == AGPS_DATA_CONNECTION_OPENING) {
             String apnName = info.getExtraInfo();
-            if (mNetworkAvailable) {
-                if (apnName == null) {
-                    /* Assign a dummy value in the case of C2K as otherwise we will have a runtime 
-                    exception in the following call to native_agps_data_conn_open*/
-                    apnName = "dummy-apn";
-                }
+            if (mNetworkAvailable && apnName != null && apnName.length() > 0) {
                 mAGpsApn = apnName;
-                if (DEBUG) Log.d(TAG, "mAGpsDataConnectionIpAddr " + mAGpsDataConnectionIpAddr);
-                if (mAGpsDataConnectionIpAddr != 0xffffffff) {
-                    boolean route_result;
-                    if (DEBUG) Log.d(TAG, "call requestRouteToHost");
-                    route_result = mConnMgr.requestRouteToHost(ConnectivityManager.TYPE_MOBILE_SUPL,
-                        mAGpsDataConnectionIpAddr);
-                    if (route_result == false) Log.d(TAG, "call requestRouteToHost failed");
-                }
                 if (DEBUG) Log.d(TAG, "call native_agps_data_conn_open");
                 native_agps_data_conn_open(apnName);
                 mAGpsDataConnectionState = AGPS_DATA_CONNECTION_OPEN;
@@ -1251,7 +1225,7 @@ public class GpsLocationProvider implements LocationProviderInterface {
     /**
      * called from native code to update AGPS status
      */
-    private void reportAGpsStatus(int type, int status, int ipaddr) {
+    private void reportAGpsStatus(int type, int status) {
         switch (status) {
             case GPS_REQUEST_AGPS_DATA_CONN:
                 if (DEBUG) Log.d(TAG, "GPS_REQUEST_AGPS_DATA_CONN");
@@ -1260,19 +1234,9 @@ public class GpsLocationProvider implements LocationProviderInterface {
                 mAGpsDataConnectionState = AGPS_DATA_CONNECTION_OPENING;
                 int result = mConnMgr.startUsingNetworkFeature(
                         ConnectivityManager.TYPE_MOBILE, Phone.FEATURE_ENABLE_SUPL);
-                mAGpsDataConnectionIpAddr = ipaddr;
                 if (result == Phone.APN_ALREADY_ACTIVE) {
                     if (DEBUG) Log.d(TAG, "Phone.APN_ALREADY_ACTIVE");
                     if (mAGpsApn != null) {
-                        Log.d(TAG, "mAGpsDataConnectionIpAddr " + mAGpsDataConnectionIpAddr);
-                        if (mAGpsDataConnectionIpAddr != 0xffffffff) {
-                            boolean route_result;
-                            if (DEBUG) Log.d(TAG, "call requestRouteToHost");
-                            route_result = mConnMgr.requestRouteToHost(
-                                ConnectivityManager.TYPE_MOBILE_SUPL,
-                                mAGpsDataConnectionIpAddr);
-                            if (route_result == false) Log.d(TAG, "call requestRouteToHost failed");
-                        }
                         native_agps_data_conn_open(mAGpsApn);
                         mAGpsDataConnectionState = AGPS_DATA_CONNECTION_OPEN;
                     } else {
@@ -1590,25 +1554,6 @@ public class GpsLocationProvider implements LocationProviderInterface {
         }
     }
 
-    private String getSelectedApn() {
-        Uri uri = Uri.parse("content://telephony/carriers/preferapn");
-        String apn = null;
-
-        Cursor cursor = mContext.getContentResolver().query(uri, new String[] {"apn"},
-                null, null, Carriers.DEFAULT_SORT_ORDER);
-
-        if (null != cursor) {
-            try {
-                if (cursor.moveToFirst()) {
-                    apn = cursor.getString(0);
-                }
-            } finally {
-                cursor.close();
-            }
-        }
-        return apn;
-    }
-
     // for GPS SV statistics
     private static final int MAX_SVS = 32;
     private static final int EPHEMERIS_MASK = 0;
@@ -1667,5 +1612,5 @@ public class GpsLocationProvider implements LocationProviderInterface {
     private native void native_agps_set_id(int type, String setid);
 
     private native void native_update_network_state(boolean connected, int type,
-            boolean roaming, boolean available, String extraInfo, String defaultAPN);
+            boolean roaming, String extraInfo);
 }

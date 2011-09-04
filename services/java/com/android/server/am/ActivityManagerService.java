@@ -55,7 +55,6 @@ import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.IIntentReceiver;
@@ -202,12 +201,6 @@ public final class ActivityManagerService extends ActivityManagerNative
     // How long we wait for a launched process to attach to the activity manager
     // before we decide it's never going to come up for real.
     static final int PROC_START_TIMEOUT = 10*1000;
-
-    // How long we wait for a launched process to attach to the activity manager
-    // before we decide it's never going to come up for real, when the process was
-    // started with a wrapper for instrumentation (such as Valgrind) because it
-    // could take much longer than usual.
-    static final int PROC_START_TIMEOUT_WITH_WRAPPER = 300*1000;
 
     // How long to wait after going idle before forcing apps to GC.
     static final int GC_TIMEOUT = 5*1000;
@@ -847,6 +840,14 @@ public final class ActivityManagerService extends ActivityManagerNative
      * Current sequence id for process LRU updating.
      */
     int mLruSeq = 0;
+    
+    /**
+     * Set to true if the ANDROID_SIMPLE_PROCESS_MANAGEMENT envvar
+     * is set, indicating the user wants processes started in such a way
+     * that they can use ANDROID_PROCESS_WRAPPER and know what will be
+     * running in each process (thus no pre-initialized process, etc).
+     */
+    boolean mSimpleProcessManagement = false;
 
     /**
      * System monitoring: number of processes that died since the last
@@ -1115,7 +1116,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                 d.setCancelable(false);
                 d.setTitle("System UIDs Inconsistent");
                 d.setMessage("UIDs on the system are inconsistent, you need to wipe your data partition or your device will be unstable.");
-                d.setButton(DialogInterface.BUTTON_POSITIVE, "I'm Feeling Lucky",
+                d.setButton("I'm Feeling Lucky",
                         mHandler.obtainMessage(IM_FEELING_LUCKY_MSG));
                 mUidAlert = d;
                 d.show();
@@ -1393,6 +1394,15 @@ public final class ActivityManagerService extends ActivityManagerNative
     }
 
     private ActivityManagerService() {
+        String v = System.getenv("ANDROID_SIMPLE_PROCESS_MANAGEMENT");
+        if (v != null && Integer.getInteger(v) != 0) {
+            mSimpleProcessManagement = true;
+        }
+        v = System.getenv("ANDROID_DEBUG_APP");
+        if (v != null) {
+            mSimpleProcessManagement = true;
+        }
+
         Slog.i(TAG, "Memory class: " + ActivityManager.staticGetMemoryClass());
         
         File dataDir = Environment.getDataDirectory();
@@ -1861,11 +1871,9 @@ public final class ActivityManagerService extends ActivityManagerNative
             if ("1".equals(SystemProperties.get("debug.assert"))) {
                 debugFlags |= Zygote.DEBUG_ENABLE_ASSERT;
             }
-
-            // Start the process.  It will either succeed and return a result containing
-            // the PID of the new process, or else throw a RuntimeException.
-            Process.ProcessStartResult startResult = Process.start("android.app.ActivityThread",
-                    app.processName, uid, uid, gids, debugFlags, null);
+            int pid = Process.start("android.app.ActivityThread",
+                    mSimpleProcessManagement ? app.processName : null, uid, uid,
+                    gids, debugFlags, null);
             BatteryStatsImpl bs = app.batteryStats.getBatteryStats();
             synchronized (bs) {
                 if (bs.isOnBattery()) {
@@ -1873,12 +1881,12 @@ public final class ActivityManagerService extends ActivityManagerNative
                 }
             }
             
-            EventLog.writeEvent(EventLogTags.AM_PROC_START, startResult.pid, uid,
+            EventLog.writeEvent(EventLogTags.AM_PROC_START, pid, uid,
                     app.processName, hostingType,
                     hostingNameStr != null ? hostingNameStr : "");
             
             if (app.persistent) {
-                Watchdog.getInstance().processStarted(app.processName, startResult.pid);
+                Watchdog.getInstance().processStarted(app.processName, pid);
             }
             
             StringBuilder buf = mStringBuilder;
@@ -1892,7 +1900,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                 buf.append(hostingNameStr);
             }
             buf.append(": pid=");
-            buf.append(startResult.pid);
+            buf.append(pid);
             buf.append(" uid=");
             buf.append(uid);
             buf.append(" gids={");
@@ -1905,22 +1913,26 @@ public final class ActivityManagerService extends ActivityManagerNative
             }
             buf.append("}");
             Slog.i(TAG, buf.toString());
-            if (startResult.pid == 0 || startResult.pid == MY_PID) {
+            if (pid == 0 || pid == MY_PID) {
                 // Processes are being emulated with threads.
                 app.pid = MY_PID;
                 app.removed = false;
                 mStartingProcesses.add(app);
-            } else {
-                app.pid = startResult.pid;
-                app.usingWrapper = startResult.usingWrapper;
+            } else if (pid > 0) {
+                app.pid = pid;
                 app.removed = false;
                 synchronized (mPidsSelfLocked) {
-                    this.mPidsSelfLocked.put(startResult.pid, app);
+                    this.mPidsSelfLocked.put(pid, app);
                     Message msg = mHandler.obtainMessage(PROC_START_TIMEOUT_MSG);
                     msg.obj = app;
-                    mHandler.sendMessageDelayed(msg, startResult.usingWrapper
-                            ? PROC_START_TIMEOUT_WITH_WRAPPER : PROC_START_TIMEOUT);
+                    mHandler.sendMessageDelayed(msg, PROC_START_TIMEOUT);
                 }
+            } else {
+                app.pid = 0;
+                RuntimeException e = new RuntimeException(
+                        "Failure starting process " + app.processName
+                        + ": returned pid=" + pid);
+                Slog.e(TAG, e.getMessage(), e);
             }
         } catch (RuntimeException e) {
             // XXX do better error recovery.
@@ -3666,12 +3678,10 @@ public final class ActivityManagerService extends ActivityManagerNative
                 String[] pkgs = intent.getStringArrayExtra(Intent.EXTRA_PACKAGES);
                 if (pkgs != null) {
                     for (String pkg : pkgs) {
-                        synchronized (ActivityManagerService.this) {
-                          if (forceStopPackageLocked(pkg, -1, false, false, false)) {
-                              setResultCode(Activity.RESULT_OK);
-                              return;
-                          }
-                       }
+                        if (forceStopPackageLocked(pkg, -1, false, false, false)) {
+                            setResultCode(Activity.RESULT_OK);
+                            return;
+                        }
                     }
                 }
             }
@@ -4372,15 +4382,12 @@ public final class ActivityManagerService extends ActivityManagerNative
         perm.modeFlags |= modeFlags;
         if (owner == null) {
             perm.globalModeFlags |= modeFlags;
-        } else {
-            if ((modeFlags&Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
-                 perm.readOwners.add(owner);
-                 owner.addReadPermission(perm);
-            }
-            if ((modeFlags&Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
-                 perm.writeOwners.add(owner);
-                 owner.addWritePermission(perm);
-            }
+        } else if ((modeFlags&Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
+            perm.readOwners.add(owner);
+            owner.addReadPermission(perm);
+        } else if ((modeFlags&Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
+            perm.writeOwners.add(owner);
+            owner.addWritePermission(perm);
         }
     }
 
@@ -6428,28 +6435,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                 sr.crashCount++;
             }
         }
-
-        // If the crashing process is what we consider to be the "home process" and it has been
-        // replaced by a third-party app, clear the package preferred activities from packages
-        // with a home activity running in the process to prevent a repeatedly crashing app
-        // from blocking the user to manually clear the list.
-        if (app == mHomeProcess && mHomeProcess.activities.size() > 0
-                    && (mHomeProcess.info.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
-            Iterator it = mHomeProcess.activities.iterator();
-            while (it.hasNext()) {
-                ActivityRecord r = (ActivityRecord)it.next();
-                if (r.isHomeActivity) {
-                    Log.i(TAG, "Clearing package preferred activities from " + r.packageName);
-                    try {
-                        ActivityThread.getPackageManager()
-                                .clearPackagePreferredActivities(r.packageName);
-                    } catch (RemoteException c) {
-                        // pm is in same process, this will never happen.
-                    }
-                }
-            }
-        }
-
+        
         mProcessCrashTimes.put(app.info.processName, app.info.uid, now);
         return true;
     }
@@ -6721,24 +6707,17 @@ public final class ActivityManagerService extends ActivityManagerNative
      * to append various headers to the dropbox log text.
      */
     private void appendDropBoxProcessHeaders(ProcessRecord process, StringBuilder sb) {
-        // Watchdog thread ends up invoking this function (with
-        // a null ProcessRecord) to add the stack file to dropbox.
-        // Do not acquire a lock on this (am) in such cases, as it
-        // could cause a potential deadlock, if and when watchdog
-        // is invoked due to unavailability of lock on am and it
-        // would prevent watchdog from killing system_server.
-        if (process == null) {
-            sb.append("Process: system_server\n");
-            return;
-        }
         // Note: ProcessRecord 'process' is guarded by the service
         // instance.  (notably process.pkgList, which could otherwise change
         // concurrently during execution of this method)
         synchronized (this) {
-            if (process.pid == MY_PID) {
+            if (process == null || process.pid == MY_PID) {
                 sb.append("Process: system_server\n");
             } else {
                 sb.append("Process: ").append(process.processName).append("\n");
+            }
+            if (process == null) {
+                return;
             }
             int flags = process.info.flags;
             IPackageManager pm = AppGlobals.getPackageManager();
@@ -6811,9 +6790,6 @@ public final class ActivityManagerService extends ActivityManagerNative
             sb.append("Subject: ").append(subject).append("\n");
         }
         sb.append("Build: ").append(Build.FINGERPRINT).append("\n");
-        if (Debug.isDebuggerConnected()) {
-            sb.append("Debugger: Connected\n");
-        }
         sb.append("\n");
 
         // Do the rest in a worker thread to avoid blocking the caller on I/O
@@ -9692,10 +9668,8 @@ public final class ActivityManagerService extends ActivityManagerNative
                 if (DEBUG_SERVICE) Slog.v(TAG, "unbindFinished in " + r
                         + " at " + b + ": apps="
                         + (b != null ? b.apps.size() : 0));
-
-                boolean inStopping = mStoppingServices.contains(r);
                 if (b != null) {
-                    if (b.apps.size() > 0 && !inStopping) {
+                    if (b.apps.size() > 0) {
                         // Applications have already bound since the last
                         // unbind, so just rebind right here.
                         requestServiceBindingLocked(r, b, true);
@@ -9706,7 +9680,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                     }
                 }
 
-                serviceDoneExecutingLocked(r, inStopping);
+                serviceDoneExecutingLocked(r, mStoppingServices.contains(r));
 
                 Binder.restoreCallingIdentity(origId);
             }

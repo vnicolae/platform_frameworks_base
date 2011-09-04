@@ -37,13 +37,6 @@ public:
     AndroidRuntime();
     virtual ~AndroidRuntime();
 
-    enum StartMode {
-        Zygote,
-        SystemServer,
-        Application,
-        Tool,
-    };
-
     /**
      * Register a set of methods in the specified class.
      */
@@ -68,7 +61,8 @@ public:
 
     int addVmArguments(int argc, const char* const argv[]);
 
-    void start(const char *classname, const char* options);
+    void start(const char *classname, const bool startSystemServer);
+    void start();       // start in android.util.RuntimeInit
 
     static AndroidRuntime* getRuntime();
     

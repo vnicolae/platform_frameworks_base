@@ -832,7 +832,7 @@ public class ScrollView extends FrameLayout {
             int count = getChildCount();
             if (count > 0) {
                 View view = getChildAt(count - 1);
-                mTempRect.bottom = view.getBottom() + mPaddingBottom;
+                mTempRect.bottom = view.getBottom();
                 mTempRect.top = mTempRect.bottom - height;
             }
         }
@@ -912,7 +912,9 @@ public class ScrollView extends FrameLayout {
             } else if (direction == View.FOCUS_DOWN) {
                 if (getChildCount() > 0) {
                     int daBottom = getChildAt(0).getBottom();
-                    int screenBottom = getScrollY() + getHeight() - mPaddingBottom;
+    
+                    int screenBottom = getScrollY() + getHeight();
+    
                     if (daBottom - screenBottom < maxJump) {
                         scrollDelta = daBottom - screenBottom;
                     }

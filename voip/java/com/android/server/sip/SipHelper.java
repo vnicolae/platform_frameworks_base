@@ -27,8 +27,6 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
-import java.util.regex.Pattern;
-
 import javax.sip.ClientTransaction;
 import javax.sip.Dialog;
 import javax.sip.DialogTerminatedEvent;
@@ -217,11 +215,9 @@ class SipHelper {
             String tag) throws ParseException, SipException {
         FromHeader fromHeader = createFromHeader(userProfile, tag);
         ToHeader toHeader = createToHeader(userProfile);
-
-        String replaceStr = Pattern.quote(userProfile.getUserName() + "@");
         SipURI requestURI = mAddressFactory.createSipURI(
-                userProfile.getUriString().replaceFirst(replaceStr, ""));
-
+                userProfile.getUriString().replaceFirst(
+                userProfile.getUserName() + "@", ""));
         List<ViaHeader> viaHeaders = createViaHeaders();
         CallIdHeader callIdHeader = createCallIdHeader();
         CSeqHeader cSeqHeader = createCSeqHeader(requestType);

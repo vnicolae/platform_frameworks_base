@@ -17,7 +17,6 @@
 package com.android.internal.telephony.gsm;
 
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.AsyncResult;
 import android.os.Binder;
 import android.os.Handler;
@@ -51,8 +50,6 @@ public class SimSmsInterfaceManager extends IccSmsInterfaceManager {
     private final Object mLock = new Object();
     private boolean mSuccess;
     private List<SmsRawData> mSms;
-    private HashMap<Integer, HashSet<String>> mCellBroadcastSubscriptions =
-            new HashMap<Integer, HashSet<String>>();
 
     private CellBroadcastRangeManager mCellBroadcastRangeManager =
             new CellBroadcastRangeManager();

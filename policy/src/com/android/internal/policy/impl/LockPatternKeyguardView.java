@@ -163,12 +163,6 @@ public class LockPatternKeyguardView extends KeyguardViewBase {
      */
     private Configuration mConfiguration;
 
-    private Runnable mRecreateRunnable = new Runnable() {
-        public void run() {
-            recreateScreens();
-        }
-    };
-
     /**
      * @return Whether we are stuck on the lock screen because the sim is
      *   missing.
@@ -250,8 +244,7 @@ public class LockPatternKeyguardView extends KeyguardViewBase {
 
             public void recreateMe(Configuration config) {
                 mConfiguration = config;
-                removeCallbacks(mRecreateRunnable);
-                post(mRecreateRunnable);
+                recreateScreens();
             }
 
             public void takeEmergencyCallAction() {
@@ -467,12 +460,6 @@ public class LockPatternKeyguardView extends KeyguardViewBase {
         recreateLockScreen();
         recreateUnlockScreen();
         updateScreen(mMode);
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        removeCallbacks(mRecreateRunnable);
-        super.onDetachedFromWindow();
     }
 
     @Override

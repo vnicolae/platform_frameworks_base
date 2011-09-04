@@ -106,7 +106,7 @@ static void classInitNative(JNIEnv* env, jclass clazz) {
                                                          "(Ljava/lang/String;Z)V");
 
     method_onAgentAuthorize = env->GetMethodID(clazz, "onAgentAuthorize",
-                                               "(Ljava/lang/String;Ljava/lang/String;I)V");
+                                               "(Ljava/lang/String;Ljava/lang/String;)Z");
     method_onAgentOutOfBandDataAvailable = env->GetMethodID(clazz, "onAgentOutOfBandDataAvailable",
                                                "(Ljava/lang/String;)Z");
     method_onAgentCancel = env->GetMethodID(clazz, "onAgentCancel", "()V");
@@ -311,7 +311,7 @@ static int register_agent(native_data_t *nat,
 {
     DBusMessage *msg, *reply;
     DBusError err;
-    dbus_bool_t oob = TRUE;
+    bool oob = TRUE;
 
     if (!dbus_connection_register_object_path(nat->conn, agent_path,
             &agent_vtable, nat)) {
@@ -428,7 +428,6 @@ static void tearDownEventLoop(native_data_t *nat) {
 #define EVENT_LOOP_EXIT 1
 #define EVENT_LOOP_ADD  2
 #define EVENT_LOOP_REMOVE 3
-#define EVENT_LOOP_WAKEUP 4
 
 dbus_bool_t dbusAddWatch(DBusWatch *watch, void *data) {
     native_data_t *nat = (native_data_t *)data;
@@ -471,13 +470,6 @@ void dbusToggleWatch(DBusWatch *watch, void *data) {
     } else {
         dbusRemoveWatch(watch, data);
     }
-}
-
-void dbusWakeup(void *data) {
-    native_data_t *nat = (native_data_t *)data;
-
-    char control = EVENT_LOOP_WAKEUP;
-    write(nat->controlFdW, &control, sizeof(char));
 }
 
 static void handleWatchAdd(native_data_t *nat) {
@@ -563,7 +555,6 @@ static void *eventLoopMain(void *ptr) {
 
     dbus_connection_set_watch_functions(nat->conn, dbusAddWatch,
             dbusRemoveWatch, dbusToggleWatch, ptr, NULL);
-    dbus_connection_set_wakeup_main_function(nat->conn, dbusWakeup, ptr, NULL);
 
     nat->running = true;
 
@@ -597,11 +588,6 @@ static void *eventLoopMain(void *ptr) {
                     case EVENT_LOOP_REMOVE:
                     {
                         handleWatchRemove(nat);
-                        break;
-                    }
-                    case EVENT_LOOP_WAKEUP:
-                    {
-                        // noop
                         break;
                     }
                     }
@@ -931,11 +917,29 @@ DBusHandlerResult agent_event_filter(DBusConnection *conn,
         LOGV("... object_path = %s", object_path);
         LOGV("... uuid = %s", uuid);
 
-        dbus_message_ref(msg);  // increment refcount because we pass to java
-        env->CallBooleanMethod(nat->me, method_onAgentAuthorize,
-                env->NewStringUTF(object_path), env->NewStringUTF(uuid),
-                int(msg));
+        bool auth_granted =
+            env->CallBooleanMethod(nat->me, method_onAgentAuthorize,
+                env->NewStringUTF(object_path), env->NewStringUTF(uuid));
 
+        // reply
+        if (auth_granted) {
+            DBusMessage *reply = dbus_message_new_method_return(msg);
+            if (!reply) {
+                LOGE("%s: Cannot create message reply\n", __FUNCTION__);
+                goto failure;
+            }
+            dbus_connection_send(nat->conn, reply, NULL);
+            dbus_message_unref(reply);
+        } else {
+            DBusMessage *reply = dbus_message_new_error(msg,
+                    "org.bluez.Error.Rejected", "Authorization rejected");
+            if (!reply) {
+                LOGE("%s: Cannot create message reply\n", __FUNCTION__);
+                goto failure;
+            }
+            dbus_connection_send(nat->conn, reply, NULL);
+            dbus_message_unref(reply);
+        }
         goto success;
     } else if (dbus_message_is_method_call(msg,
             "org.bluez.Agent", "OutOfBandAvailable")) {

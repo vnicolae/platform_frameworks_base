@@ -61,11 +61,12 @@ public:
     }
     
     static SkCanvas* initGL(JNIEnv* env, jobject) {
-        return 0;
+        return new SkGLCanvas;
     }
     
     static void freeCaches(JNIEnv* env, jobject) {
         // these are called in no particular order
+        SkGLCanvas::DeleteAllTextures();
         SkImageRef_GlobalPool::SetRAMUsed(0);
         SkGraphics::SetFontCacheUsed(0);
     }
@@ -73,6 +74,20 @@ public:
     static jboolean isOpaque(JNIEnv* env, jobject jcanvas) {
         NPE_CHECK_RETURN_ZERO(env, jcanvas);
         SkCanvas* canvas = GraphicsJNI::getNativeCanvas(env, jcanvas);
+
+        /*
+            Currently we cannot support transparency in GL-based canvas' at
+            the view level. Therefore we cannot base our answer on the device's
+            bitmap, but need to hard-code the answer. If we relax this
+            limitation in views, we can simplify the following code as well.
+         
+            Use the getViewport() call to find out if we're gl-based...
+        */
+        if (canvas->getViewport(NULL)) {
+            return true;
+        }
+        
+        // normal technique, rely on the device's bitmap for the answer
         return canvas->getDevice()->accessBitmap(false).isOpaque();
     }
     
@@ -90,6 +105,7 @@ public:
 
     static void setViewport(JNIEnv* env, jobject, SkCanvas* canvas,
                             int width, int height) {
+        canvas->setViewport(width, height);
     }
     
     static void setBitmap(JNIEnv* env, jobject, SkCanvas* canvas,
@@ -664,7 +680,7 @@ public:
         }
         SkShader* shader = SkShader::CreateBitmapShader(*bitmap,
                         SkShader::kClamp_TileMode, SkShader::kClamp_TileMode);
-        SkSafeUnref(tmpPaint.setShader(shader));
+        tmpPaint.setShader(shader)->safeUnref();
 
         canvas->drawVertices(SkCanvas::kTriangles_VertexMode, ptCount, verts,
                              texs, (const SkColor*)colorA.ptr(), NULL, indices,

@@ -685,11 +685,13 @@ bool AaptGroupEntry::getMncName(const char* name,
     if (*c != 0) return false;
     if (c-val == 0 || c-val > 3) return false;
 
-    if (out) {
-        out->mnc = atoi(val);
+    int d = atoi(val);
+    if (d != 0) {
+        if (out) out->mnc = d;
+        return true;
     }
 
-    return true;
+    return false;
 }
 
 /*
@@ -1393,10 +1395,10 @@ status_t AaptDir::addLeafFile(const String8& leafName, const sp<AaptFile>& file)
 }
 
 ssize_t AaptDir::slurpFullTree(Bundle* bundle, const String8& srcDir,
-                            const AaptGroupEntry& kind, const String8& resType,
-                            sp<FilePathStore>& fullResPaths)
+                            const AaptGroupEntry& kind, const String8& resType)
 {
     Vector<String8> fileNames;
+
     {
         DIR* dir = NULL;
 
@@ -1419,14 +1421,9 @@ ssize_t AaptDir::slurpFullTree(Bundle* bundle, const String8& srcDir,
             if (isHidden(srcDir.string(), entry->d_name))
                 continue;
 
-            String8 name(entry->d_name);
-            fileNames.add(name);
-            // Add fully qualified path for dependency purposes
-            // if we're collecting them
-            if (fullResPaths != NULL) {
-                fullResPaths->add(srcDir.appendPathCopy(name));
-            }
+            fileNames.add(String8(entry->d_name));
         }
+
         closedir(dir);
     }
 
@@ -1453,7 +1450,7 @@ ssize_t AaptDir::slurpFullTree(Bundle* bundle, const String8& srcDir,
                 notAdded = true;
             }
             ssize_t res = subdir->slurpFullTree(bundle, pathName, kind,
-                                                resType, fullResPaths);
+                                                resType);
             if (res < NO_ERROR) {
                 return res;
             }
@@ -1685,7 +1682,7 @@ ssize_t AaptAssets::slurpFromArgs(Bundle* bundle)
         sp<AaptDir> assetAaptDir = makeDir(String8(kAssetDir));
         AaptGroupEntry group;
         count = assetAaptDir->slurpFullTree(bundle, assetRoot, group,
-                                            String8(), mFullAssetPaths);
+                                            String8());
         if (count < 0) {
             totalCount = count;
             goto bail;
@@ -1716,7 +1713,6 @@ ssize_t AaptAssets::slurpFromArgs(Bundle* bundle)
                     sp<AaptAssets> nextOverlay = new AaptAssets();
                     current->setOverlay(nextOverlay);
                     current = nextOverlay;
-                    current->setFullResPaths(mFullResPaths);
                 }
                 count = current->slurpResourceTree(bundle, String8(res));
 
@@ -1759,7 +1755,7 @@ ssize_t AaptAssets::slurpFromArgs(Bundle* bundle)
          * guarantees about ordering, so we're okay with an inorder search
          * using whatever order the OS happens to hand back to us.
          */
-        count = slurpFullTree(bundle, assetRoot, AaptGroupEntry(), String8(), mFullAssetPaths);
+        count = slurpFullTree(bundle, assetRoot, AaptGroupEntry(), String8());
         if (count < 0) {
             /* failure; report error and remove archive */
             totalCount = count;
@@ -1785,10 +1781,9 @@ bail:
 
 ssize_t AaptAssets::slurpFullTree(Bundle* bundle, const String8& srcDir,
                                     const AaptGroupEntry& kind,
-                                    const String8& resType,
-                                    sp<FilePathStore>& fullResPaths)
+                                    const String8& resType)
 {
-    ssize_t res = AaptDir::slurpFullTree(bundle, srcDir, kind, resType, fullResPaths);
+    ssize_t res = AaptDir::slurpFullTree(bundle, srcDir, kind, resType);
     if (res > 0) {
         mGroupEntries.add(kind);
     }
@@ -1850,7 +1845,7 @@ ssize_t AaptAssets::slurpResourceTree(Bundle* bundle, const String8& srcDir)
         if (type == kFileTypeDirectory) {
             sp<AaptDir> dir = makeDir(String8(entry->d_name));
             ssize_t res = dir->slurpFullTree(bundle, subdirName, group,
-                                                resType, mFullResPaths);
+                                                resType);
             if (res < 0) {
                 count = res;
                 goto bail;
